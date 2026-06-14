@@ -1,0 +1,7 @@
+# Shared C++ style for the team. Run `clang-format -i <files>` or enable
+# format-on-save in your editor. Based on LLVM (matches the existing code).
+BasedOnStyle: LLVM
+Standard: c++20
+ColumnLimit: 120
+PointerAlignment: Right      # std::byte *buf;
+IndentWidth: 2

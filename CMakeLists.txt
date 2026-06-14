@@ -1,5 +1,29 @@
 cmake_minimum_required(VERSION 3.15)
 project(MyTorch LANGUAGES CXX)
 
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON) # let clangd/IDEs find include paths
+
+# Core library: everything in src/ links into one target the tests + examples use.
+# Empty .cpp files are fine -- add real ones here as you implement them.
+add_library(mytorch
+  src/storage.cpp
+  src/tensor.cpp
+  src/ops/add.cpp
+  src/ops/matmul.cpp
+  src/data/mnist.cpp
+)
+target_include_directories(mytorch PUBLIC include)
+target_compile_features(mytorch PUBLIC cxx_std_20)
+
+# Example
 add_executable(hello examples/hello_world.cpp)
-target_compile_features(hello PRIVATE cxx_std_20)
+target_link_libraries(hello PRIVATE mytorch)
+
+# Tests (build with -DMYTORCH_BUILD_TESTS=ON, on by default)
+option(MYTORCH_BUILD_TESTS "Build the test suite" ON)
+if(MYTORCH_BUILD_TESTS)
+  enable_testing()
+  add_subdirectory(tests)
+endif()
