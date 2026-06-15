@@ -5,3 +5,5 @@ Standard: c++20
 ColumnLimit: 120
 PointerAlignment: Right      # std::byte *buf;
 IndentWidth: 2
+PackConstructorInitializers: Never   # one member-initializer per line
+BreakConstructorInitializers: BeforeColon  # leading ':' and ',' on each line
