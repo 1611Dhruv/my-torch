@@ -18,6 +18,7 @@ public:
   // View Ops
   Tensor reshape(std::vector<int64_t> new_shape) const;
   Tensor transpose(int64_t dim1, int64_t dim2) const;
+  Tensor contiguous() const;
 
   // Access Ops
   Tensor operator[](int64_t i) const;
@@ -33,6 +34,7 @@ public:
   inline int64_t offset() const { return _offset; };
   inline DType dtype() const { return _dtype; };
   inline Device device() const { return _storage.device(); };
+  bool is_contiguous() const;
 
   // static factories
   static Tensor zeros(std::vector<int64_t> shape, DType dtype, Device device);
@@ -41,9 +43,6 @@ public:
 
   /*
    NOTE: Future maybe
-  bool is_contiguous() const;
-  Tensor contiguous() const;
-
   Tensor permute(std::vector<int64_t> dim_order) const;
   Tensor slice(int64_t dim, int64_t start, int64_t end) const;
   Tensor squeeze() const;
@@ -63,6 +62,46 @@ private:
 };
 
 std::ostream &operator<<(std::ostream &os, const Tensor &t);
+
+template <typename T> constexpr DType dtype_of();
+template <> constexpr DType dtype_of<float>() { return DType::Float32; }
+template <> constexpr DType dtype_of<int32_t>() { return DType::Int32; }
+template <> constexpr DType dtype_of<uint8_t>() { return DType::UInt8; }
+
+template <typename T> T *typeptr(DType type, std::byte *buff) {
+  if (dtype_of<T>() != type) {
+    throw std::invalid_argument("Type cannot be casted");
+  }
+  return reinterpret_cast<T *>(buff);
+}
+
+template <typename T> T &Tensor::at(std::initializer_list<int64_t> idx) {
+  int64_t N = static_cast<int64_t>(_shape.size());
+  int64_t curr = 0;
+
+  int elm_off = _offset;
+  for (auto it = idx.begin(); it != idx.end(); it++) {
+    if (curr >= N) {
+      throw std::invalid_argument("Too many indexes provide, dim doesn't match");
+    }
+    elm_off += _strides[curr];
+    curr++;
+  }
+  if (curr != N) {
+    throw std::invalid_argument("Please index all the way to one value");
+  }
+
+  return *typeptr<T>(_dtype, _storage.get() + elm_off);
+}
+
+template <typename T> T &Tensor::item() {
+  if (_shape.size() != 0) {
+    throw std::invalid_argument("Please call item on a singleton tensor");
+  }
+  return *typeptr<T>(_dtype, _storage.get() + _offset);
+}
+
+template <typename T> T *Tensor::data_ptr() { return typeptr<T>(_dtype, _storage.get() + _offset); }
 
 } // namespace torch
 #endif

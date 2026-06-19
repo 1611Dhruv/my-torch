@@ -20,18 +20,6 @@ size_t itemsize(DType type) {
   throw std::invalid_argument("unknown DType");
 }
 
-template <typename T> constexpr DType dtype_of();
-template <> constexpr DType dtype_of<float>() { return DType::Float32; }
-template <> constexpr DType dtype_of<int32_t>() { return DType::Int32; }
-template <> constexpr DType dtype_of<uint8_t>() { return DType::UInt8; }
-
-template <typename T> T *typeptr(DType type, std::byte *buff) {
-  if (dtype_of<T>() != type) {
-    throw std::invalid_argument("Type cannot be casted");
-  }
-  return reinterpret_cast<T *>(buff);
-}
-
 static int64_t numel_of(const std::vector<int64_t> &shape) {
   int64_t count = 1;
   for (auto &dim : shape)
@@ -97,6 +85,37 @@ Tensor Tensor::transpose(int64_t dim1, int64_t dim2) const {
   return Tensor(_storage, new_shape, new_strides, 0, _dtype);
 }
 
+static bool next_index(std::vector<int64_t> &idx, const std::vector<int64_t> &shape) {
+  for (int64_t d = static_cast<int64_t>(idx.size()) - 1; d >= 0; --d) {
+    if (++idx[d] < shape[d])
+      return true;
+    idx[d] = 0;
+  }
+  return false;
+}
+
+Tensor Tensor::contiguous() const {
+  if (is_contiguous())
+    return *this;
+
+  Tensor out(_shape, _dtype, device());
+  std::vector<int64_t> idx(_shape.size(), 0);
+  size_t size = itemsize(_dtype);
+  std::byte *dst = out._storage.get();
+  const std::byte *src = _storage.get();
+
+  for (int64_t d = 0; d < numel(); d++) {
+    int64_t src_flat = _offset;
+    for (int64_t k = 0; k < static_cast<int64_t>(_shape.size()); k++)
+      src_flat += idx[k] * _strides[k];
+
+    std::memcpy(dst + d * size, src + src_flat * size, size);
+    next_index(idx, _shape);
+  }
+
+  return out;
+}
+
 // Access Ops
 Tensor Tensor::operator[](int64_t i) const {
   int64_t N = static_cast<int64_t>(_shape.size());
@@ -114,36 +133,19 @@ Tensor Tensor::operator[](int64_t i) const {
   return Tensor(_storage, new_shape, new_strides, i * _strides[0] * itemsize(_dtype), _dtype);
 }
 
-template <typename T> T &Tensor::at(std::initializer_list<int64_t> idx) {
-  int64_t N = static_cast<int64_t>(_shape.size());
-  int64_t curr = 0;
-
-  int elm_off = _offset;
-  for (auto it = idx.begin(); it != idx.end(); it++) {
-    if (curr >= N) {
-      throw std::invalid_argument("Too many indexes provide, dim doesn't match");
-    }
-    elm_off += _strides[curr];
-    curr++;
-  }
-  if (curr != N) {
-    throw std::invalid_argument("Please index all the way to one value");
-  }
-
-  return typeptr<T>(_dtype, _storage.get() + elm_off);
-}
-
-template <typename T> T &Tensor::item() {
-  if (_shape.size() != 0) {
-    throw std::invalid_argument("Please call item on a singleton tensor");
-  }
-  return *typeptr<T>(_dtype, _storage.get() + _offset);
-}
-
-template <typename T> T *Tensor::data_ptr() { return typeptr<T>(_dtype, _storage.get() + _offset); }
-
 // Metadata Accessors
 int64_t Tensor::numel() const { return numel_of(_shape); }
+
+bool Tensor::is_contiguous() const {
+  int64_t N = static_cast<int64_t>(_shape.size());
+  int64_t expected = 1;
+  for (int64_t i = N - 1; i >= 0; i--) {
+    if (_shape[i] != 1 && expected != _strides[i])
+      return false;
+    expected *= _shape[i];
+  }
+  return true;
+}
 
 // Static factory
 Tensor Tensor::zeros(std::vector<int64_t> shape, DType dtype, Device device) {

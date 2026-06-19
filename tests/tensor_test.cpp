@@ -63,12 +63,12 @@ TEST(TensorTest, AtIndexingMatchesRowMajorLayout) {
   Tensor t({2, 3}, DType::Float32);
   // fill via flat buffer: value = row*10 + col
   float *p = t.data_ptr<float>();
-  for (int i = 0; i < 2; ++i)
-    for (int j = 0; j < 3; ++j)
+  for (int64_t i = 0; i < 2; ++i)
+    for (int64_t j = 0; j < 3; ++j)
       p[i * 3 + j] = static_cast<float>(i * 10 + j);
   // read back via at<T>({i,j})
-  for (int i = 0; i < 2; ++i)
-    for (int j = 0; j < 3; ++j)
+  for (int64_t i = 0; i < 2; ++i)
+    for (int64_t j = 0; j < 3; ++j)
       EXPECT_FLOAT_EQ((t.at<float>({i, j})), static_cast<float>(i * 10 + j));
 }
 
