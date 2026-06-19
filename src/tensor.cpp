@@ -17,6 +17,7 @@ size_t itemsize(DType type) {
   case DType::UInt8:
     return 1;
   }
+  throw std::invalid_argument("unknown DType");
 }
 
 template <typename T> constexpr DType dtype_of();
@@ -140,6 +141,9 @@ template <typename T> T &Tensor::item() {
 }
 
 template <typename T> T *Tensor::data_ptr() { return typeptr<T>(_dtype, _storage.get() + _offset); }
+
+// Metadata Accessors
+int64_t Tensor::numel() const { return numel_of(_shape); }
 
 // Static factory
 Tensor Tensor::zeros(std::vector<int64_t> shape, DType dtype, Device device) {
