@@ -110,23 +110,23 @@ template <typename T> T *Tensor::data_ptr() { return typeptr<T>(_dtype, _storage
 // NOTE: Dispatch op (needed at compile time identification)
 #define DISPATCH_OP(DTYPE, ...)                                                                                        \
   switch (DTYPE) {                                                                                                     \
-  case torch::Dtype::Float32: {                                                                                        \
+  case torch::DType::Float32: {                                                                                        \
     using scalar_t = float;                                                                                            \
     __VA_ARGS__();                                                                                                     \
     break;                                                                                                             \
   }                                                                                                                    \
-  case torch::Dtype::Int32: {                                                                                          \
+  case torch::DType::Int32: {                                                                                          \
     using scalar_t = int32_t;                                                                                          \
     __VA_ARGS__();                                                                                                     \
     break;                                                                                                             \
   }                                                                                                                    \
-  case torch::Dtype::UInt8: {                                                                                          \
+  case torch::DType::UInt8: {                                                                                          \
     using scalar_t = uint8_t;                                                                                          \
     __VA_ARGS__();                                                                                                     \
     break;                                                                                                             \
   }                                                                                                                    \
   default:                                                                                                             \
-    throw std::invalid_argument("Dispatch doesn't support dtype")                                                      \
+    throw std::invalid_argument("Dispatch doesn't support dtype");                                                     \
   }
 
 #endif

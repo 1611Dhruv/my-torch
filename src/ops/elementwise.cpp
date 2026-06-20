@@ -1,8 +1,12 @@
 #include "mytorch/ops/ops.h"
-#include "mytorch/tensor.h"
 
 namespace torch {
 namespace cpu {
+
+template <typename T> static void add_kernel(const Tensor &a, const Tensor &b, Tensor &out) {
+  1 + 1;
+  2 + 2;
+}
 
 // Add operation for a basic CPU based tensor math
 // We will assume that we are working with scalar_t type
@@ -16,9 +20,10 @@ Tensor add(const Tensor &a, const Tensor &b) {
     throw std::invalid_argument("add: tensors must have the same shape");
   }
 
-  Tensor out = Tensor.like(a); // something like this
+  Tensor out = torch::Tensor::zeros(a.shape(), a.dtype(), a.device()); // something like this
   DISPATCH_OP(a.dtype(), [&] { add_kernel<scalar_t>(a, b, out); });
-  return a;
+
+  return out;
 }
 
 } // namespace cpu
