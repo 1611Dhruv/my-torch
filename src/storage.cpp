@@ -1,18 +1,5 @@
 #include "mytorch/storage.h"
 
-// ============================================================================
-// TEMPORARY STUB -- DO NOT KEEP.
-//
-// Exists only to unblock Tensor work while the real Storage is written.
-// It allocates a buffer and shares it on copy (so Tensor views share data),
-// but INTENTIONALLY OMITS the real learning content:
-//   * no real refcounting -- use_count() always returns 1
-//   * the destructor LEAKS -- nothing is ever freed
-// Replace every body below with the real rule-of-five + refcount impl.
-// (storage_test.cpp will keep failing the use_count/free assertions until then,
-//  which is the correct signal for what's left to do.)
-// ============================================================================
-
 namespace torch {
 
 Storage::Storage(size_t num_bytes, Device device)
@@ -44,7 +31,7 @@ void Storage::release() {
 
 Storage::~Storage() { release(); }
 
-// Copy SHARES the buffer (shallow) so a Tensor's views point at the same bytes.
+// Copy shares the buffer so a Tensor's views point at the same bytes.
 Storage::Storage(const Storage &other)
     : _buffer(other._buffer),
       _refcount(other._refcount),
