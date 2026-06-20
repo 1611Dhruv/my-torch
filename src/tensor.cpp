@@ -69,7 +69,7 @@ Tensor Tensor::reshape(std::vector<int64_t> new_shape) const {
 
 // Allows negative indexing too
 Tensor Tensor::transpose(int64_t dim1, int64_t dim2) const {
-  int ndim = _shape.size();
+  int64_t ndim = _shape.size();
   if (dim1 < 0)
     dim1 = ndim + dim1;
   if (dim2 < 0)
@@ -127,12 +127,15 @@ Tensor Tensor::operator[](int64_t i) const {
   if (_shape.size() == 0) {
     throw std::invalid_argument("Cannot index further into a singleton Tensor");
   }
+  if (i < 0 || i >= _shape[0]) {
+    throw std::invalid_argument("Index out of range");
+  }
 
   std::vector<int64_t> new_shape(N - 1);
   std::vector<int64_t> new_strides(N - 1);
-  for (int64_t i = 0; i < N - 1; i++) {
-    new_shape[i] = _shape[i + 1];
-    new_strides[i] = _strides[i + 1];
+  for (int64_t j = 0; j < N - 1; j++) {
+    new_shape[j] = _shape[j + 1];
+    new_strides[j] = _strides[j + 1];
   }
 
   return Tensor(_storage, new_shape, new_strides, i * _strides[0], _dtype);
@@ -199,4 +202,4 @@ std::ostream &operator<<(std::ostream &os, const Tensor &t) {
   os << t.numel();
   return os;
 }
-}; // namespace torch
+} // namespace torch
