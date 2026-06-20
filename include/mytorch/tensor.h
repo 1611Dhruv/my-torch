@@ -27,6 +27,7 @@ public:
   template <typename T> T &at(std::initializer_list<int64_t> idx);
   template <typename T> T &item();
   template <typename T> T *data_ptr();
+  template <typename T> const T *data_ptr() const;
 
   // Metadata Accessors
   int64_t ndim() const { return static_cast<int64_t>(_shape.size()); };
@@ -103,7 +104,14 @@ template <typename T> T &Tensor::item() {
   return *typeptr<T>(_dtype, _storage.get() + _offset * itemsize(_dtype));
 }
 
-template <typename T> T *Tensor::data_ptr() { return typeptr<T>(_dtype, _storage.get() + _offset * itemsize(_dtype)); }
+template <typename T> T *Tensor::data_ptr() {
+  // multable pointer
+  return typeptr<T>(_dtype, _storage.get() + _offset * itemsize(_dtype));
+}
+
+template <typename T> const T *Tensor::data_ptr() const {
+  return typeptr<T>(_dtype, _storage.get() + _offset * itemsize(_dtype));
+}
 
 } // namespace torch
 

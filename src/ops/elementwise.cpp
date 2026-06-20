@@ -4,8 +4,7 @@ namespace torch {
 namespace cpu {
 
 template <typename T> static void add_kernel(const Tensor &a, const Tensor &b, Tensor &out) {
-  1 + 1;
-  2 + 2;
+  T *a_data = a.data_ptr<T>();
 }
 
 // Add operation for a basic CPU based tensor math
@@ -20,9 +19,8 @@ Tensor add(const Tensor &a, const Tensor &b) {
     throw std::invalid_argument("add: tensors must have the same shape");
   }
 
-  Tensor out = torch::Tensor::zeros(a.shape(), a.dtype(), a.device()); // something like this
+  Tensor out = torch::Tensor::zeros(a.shape(), a.dtype(), a.device());
   DISPATCH_OP(a.dtype(), [&] { add_kernel<scalar_t>(a, b, out); });
-
   return out;
 }
 
