@@ -106,4 +106,27 @@ template <typename T> T &Tensor::item() {
 template <typename T> T *Tensor::data_ptr() { return typeptr<T>(_dtype, _storage.get() + _offset * itemsize(_dtype)); }
 
 } // namespace torch
+
+// NOTE: Dispatch op (needed at compile time identification)
+#define DISPATCH_OP(DTYPE, ...)                                                                                        \
+  switch (DTYPE) {                                                                                                     \
+  case torch::Dtype::Float32: {                                                                                        \
+    using scalar_t = float;                                                                                            \
+    __VA_ARGS__();                                                                                                     \
+    break;                                                                                                             \
+  }                                                                                                                    \
+  case torch::Dtype::Int32: {                                                                                          \
+    using scalar_t = int32_t;                                                                                          \
+    __VA_ARGS__();                                                                                                     \
+    break;                                                                                                             \
+  }                                                                                                                    \
+  case torch::Dtype::UInt8: {                                                                                          \
+    using scalar_t = uint8_t;                                                                                          \
+    __VA_ARGS__();                                                                                                     \
+    break;                                                                                                             \
+  }                                                                                                                    \
+  default:                                                                                                             \
+    throw std::invalid_argument("Dispatch doesn't support dtype")                                                      \
+  }
+
 #endif
