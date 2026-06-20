@@ -1,6 +1,7 @@
 #include "mytorch/tensor.h"
 #include "mytorch/storage.h"
 #include <cassert>
+#include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
@@ -17,18 +18,7 @@ size_t itemsize(DType type) {
   case DType::UInt8:
     return 1;
   }
-}
-
-template <typename T> constexpr DType dtype_of();
-template <> constexpr DType dtype_of<float>() { return DType::Float32; }
-template <> constexpr DType dtype_of<int32_t>() { return DType::Int32; }
-template <> constexpr DType dtype_of<uint8_t>() { return DType::UInt8; }
-
-template <typename T> T *typeptr(DType type, std::byte *buff) {
-  if (dtype_of<T>() != type) {
-    throw std::invalid_argument("Type cannot be casted");
-  }
-  return reinterpret_cast<T *>(buff);
+  throw std::invalid_argument("unknown DType");
 }
 
 static int64_t numel_of(const std::vector<int64_t> &shape) {
@@ -70,16 +60,21 @@ Tensor Tensor::reshape(std::vector<int64_t> new_shape) const {
   if (numel_of(_shape) != numel_of(new_shape)) {
     throw std::invalid_argument("Reshape can't work as number of elements are different");
   }
-  return Tensor(_storage, new_shape, strides_for(new_shape), 0, _dtype);
+
+  // Non contiguous needs a new buffer before reshaping
+  if (!is_contiguous())
+    return this->contiguous().reshape(new_shape);
+
+  return Tensor(_storage, new_shape, strides_for(new_shape), _offset, _dtype);
 }
 
 // Allows negative indexing too
 Tensor Tensor::transpose(int64_t dim1, int64_t dim2) const {
-  int ndim = _shape.size();
+  int64_t ndim = _shape.size();
   if (dim1 < 0)
-    dim1 = ndim - dim1;
+    dim1 = ndim + dim1;
   if (dim2 < 0)
-    dim2 = ndim - dim2;
+    dim2 = ndim + dim2;
 
   if (dim1 < 0 || dim2 < 0 || dim1 >= ndim || dim2 >= ndim) {
     throw std::invalid_argument("The provided dimensions are not transposable");
@@ -93,7 +88,38 @@ Tensor Tensor::transpose(int64_t dim1, int64_t dim2) const {
 
   std::swap(new_shape[dim1], new_shape[dim2]);
   std::swap(new_strides[dim1], new_strides[dim2]);
-  return Tensor(_storage, new_shape, new_strides, 0, _dtype);
+  return Tensor(_storage, new_shape, new_strides, _offset, _dtype);
+}
+
+static bool next_index(std::vector<int64_t> &idx, const std::vector<int64_t> &shape) {
+  for (int64_t d = static_cast<int64_t>(idx.size()) - 1; d >= 0; --d) {
+    if (++idx[d] < shape[d])
+      return true;
+    idx[d] = 0;
+  }
+  return false;
+}
+
+Tensor Tensor::contiguous() const {
+  if (is_contiguous())
+    return *this;
+
+  Tensor out(_shape, _dtype, device());
+  std::vector<int64_t> idx(_shape.size(), 0);
+  size_t size = itemsize(_dtype);
+  std::byte *dst = out._storage.get();
+  const std::byte *src = _storage.get();
+
+  for (int64_t d = 0; d < numel(); d++) {
+    int64_t src_flat = _offset;
+    for (int64_t k = 0; k < static_cast<int64_t>(_shape.size()); k++)
+      src_flat += idx[k] * _strides[k];
+
+    std::memcpy(dst + d * size, src + src_flat * size, size);
+    next_index(idx, _shape);
+  }
+
+  return out;
 }
 
 // Access Ops
@@ -102,44 +128,33 @@ Tensor Tensor::operator[](int64_t i) const {
   if (_shape.size() == 0) {
     throw std::invalid_argument("Cannot index further into a singleton Tensor");
   }
+  if (i < 0 || i >= _shape[0]) {
+    throw std::invalid_argument("Index out of range");
+  }
 
   std::vector<int64_t> new_shape(N - 1);
   std::vector<int64_t> new_strides(N - 1);
-  for (int64_t i = 0; i < N; i++) {
-    new_shape[i] = _shape[i + 1];
-    new_strides[i] = _strides[i + 1];
+  for (int64_t j = 0; j < N - 1; j++) {
+    new_shape[j] = _shape[j + 1];
+    new_strides[j] = _strides[j + 1];
   }
 
-  return Tensor(_storage, new_shape, new_strides, i * _strides[0] * itemsize(_dtype), _dtype);
+  return Tensor(_storage, new_shape, new_strides, i * _strides[0], _dtype);
 }
 
-template <typename T> T &Tensor::at(std::initializer_list<int64_t> idx) {
+// Metadata Accessors
+int64_t Tensor::numel() const { return numel_of(_shape); }
+
+bool Tensor::is_contiguous() const {
   int64_t N = static_cast<int64_t>(_shape.size());
-  int64_t curr = 0;
-
-  int elm_off = _offset;
-  for (auto it = idx.begin(); it != idx.end(); it++) {
-    if (curr >= N) {
-      throw std::invalid_argument("Too many indexes provide, dim doesn't match");
-    }
-    elm_off += _strides[curr];
-    curr++;
+  int64_t expected = 1;
+  for (int64_t i = N - 1; i >= 0; i--) {
+    if (_shape[i] != 1 && expected != _strides[i])
+      return false;
+    expected *= _shape[i];
   }
-  if (curr != N) {
-    throw std::invalid_argument("Please index all the way to one value");
-  }
-
-  return typeptr<T>(_dtype, _storage.get() + elm_off);
+  return true;
 }
-
-template <typename T> T &Tensor::item() {
-  if (_shape.size() != 0) {
-    throw std::invalid_argument("Please call item on a singleton tensor");
-  }
-  return *typeptr<T>(_dtype, _storage.get() + _offset);
-}
-
-template <typename T> T *Tensor::data_ptr() { return typeptr<T>(_dtype, _storage.get() + _offset); }
 
 // Static factory
 Tensor Tensor::zeros(std::vector<int64_t> shape, DType dtype, Device device) {
@@ -171,14 +186,20 @@ Tensor Tensor::ones(std::vector<int64_t> shape, DType dtype, Device device) {
   return t;
 }
 
+static std::mt19937 &rand_generator() {
+  static std::mt19937 gen(std::random_device{}());
+  return gen;
+}
+
+void manual_seed(uint64_t seed) { rand_generator().seed(seed); }
+
 Tensor Tensor::rand(std::vector<int64_t> shape, Device device) {
   Tensor t(shape, torch::DType::Float32, device);
   int64_t n = t.numel();
   float *p = t.data_ptr<float>();
-  std::mt19937 gen(random());
   std::uniform_real_distribution<float> dist(0.0f, 1.0f);
   for (int64_t i = 0; i < n; i++) {
-    p[i] = dist(gen);
+    p[i] = dist(rand_generator());
   }
 
   return t;
@@ -188,4 +209,4 @@ std::ostream &operator<<(std::ostream &os, const Tensor &t) {
   os << t.numel();
   return os;
 }
-}; // namespace torch
+} // namespace torch

@@ -12,7 +12,7 @@ add_library(mytorch
   src/tensor.cpp
   src/ops/add.cpp
   src/ops/matmul.cpp
-  src/data/mnist.cpp
+  #  src/data/mnist.cpp
 )
 target_include_directories(mytorch PUBLIC include)
 target_compile_features(mytorch PUBLIC cxx_std_20)

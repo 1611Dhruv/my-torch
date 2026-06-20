@@ -72,6 +72,13 @@ TEST(TensorTest, AtIndexingMatchesRowMajorLayout) {
       EXPECT_FLOAT_EQ((t.at<float>({i, j})), static_cast<float>(i * 10 + j));
 }
 
+TEST(TensorTest, ItemReadsCorrectBytes) {
+  Tensor t({2}, DType::Float32);
+  float *p = t.data_ptr<float>();
+  p[1] = 3;
+  EXPECT_EQ(t[1].item<float>(), t.at<float>({1}));
+}
+
 // --- transpose: metadata-only view, shares storage --------------------------
 
 TEST(TensorTest, TransposeSwapsShapeAndStrides) {
@@ -105,6 +112,28 @@ TEST(TensorTest, TransposeLogicalValuesAreFlipped) {
       EXPECT_FLOAT_EQ((tt.at<float>({j, i})), (t.at<float>({i, j})));
 }
 
+TEST(TensorTest, TransposeNegativeIndicesWork) {
+  Tensor t({2, 3}, DType::Float32);
+  float *p = t.data_ptr<float>();
+  for (int i = 0; i < 6; ++i)
+    p[i] = static_cast<float>(i);
+  Tensor tt = t.transpose(0, -1);
+  // tt[j,i] must equal t[i,j]
+  for (int i = 0; i < 2; ++i)
+    for (int j = 0; j < 3; ++j)
+      EXPECT_FLOAT_EQ((tt.at<float>({j, i})), (t.at<float>({i, j})));
+}
+
+TEST(TensorTest, TransposePreservesOffset) {
+  Tensor t({2, 2, 3}, DType::Float32);
+  t = t[1];
+  float *p = t.data_ptr<float>();
+  for (int i = 0; i < 6; ++i)
+    p[i] = static_cast<float>(i);
+  Tensor tt = t.transpose(0, 1);
+  EXPECT_EQ(t.offset(), tt.offset());
+}
+
 // --- reshape ----------------------------------------------------------------
 
 TEST(TensorTest, ReshapePreservesNumelAndIsContiguous) {
@@ -126,9 +155,13 @@ TEST(TensorTest, ReshapeOfContiguousSharesStorage) {
 TEST(TensorTest, IndexReturnsSubview) {
   Tensor t({2, 3});
   Tensor row = t[1];
+
+  float *row_data = row.data_ptr<float>();
+  row_data[1] = 3.;
+
   EXPECT_EQ(row.ndim(), 1);
   EXPECT_EQ(row.shape(), (Shape{3}));
-  EXPECT_EQ(row.data_ptr<float>(), t.data_ptr<float>()); // shares storage
+  EXPECT_EQ(t.at<float>({1, 1}), 3.); // shares storage
 }
 
 // --- contiguous() -----------------------------------------------------------
@@ -158,4 +191,27 @@ TEST(TensorTest, OnesAreAllOne) {
   Tensor t = Tensor::ones({5}, DType::Float32, CPU);
   for (int i = 0; i < 5; ++i)
     EXPECT_FLOAT_EQ(t.data_ptr<float>()[i], 1.0f);
+}
+
+// --- rng --------------------------------------------------------------------
+
+TEST(TensorTest, ManualSeedIsReproducible) {
+  torch::manual_seed(42);
+  Tensor a = Tensor::rand({5}, CPU);
+  torch::manual_seed(42);
+  Tensor b = Tensor::rand({5}, CPU);
+  for (int i = 0; i < 5; ++i)
+    EXPECT_FLOAT_EQ(a.data_ptr<float>()[i], b.data_ptr<float>()[i]);
+}
+
+TEST(TensorTest, DifferentSeedsDiffer) {
+  torch::manual_seed(1);
+  Tensor a = Tensor::rand({5}, CPU);
+  torch::manual_seed(2);
+  Tensor b = Tensor::rand({5}, CPU);
+  bool all_equal = true;
+  for (int i = 0; i < 5; ++i)
+    if (a.data_ptr<float>()[i] != b.data_ptr<float>()[i])
+      all_equal = false;
+  EXPECT_FALSE(all_equal);
 }
