@@ -59,16 +59,21 @@ Tensor Tensor::reshape(std::vector<int64_t> new_shape) const {
   if (numel_of(_shape) != numel_of(new_shape)) {
     throw std::invalid_argument("Reshape can't work as number of elements are different");
   }
-  return Tensor(_storage, new_shape, strides_for(new_shape), 0, _dtype);
+
+  // Non contiguous needs a new buffer before reshaping
+  if (!is_contiguous())
+    return this->contiguous().reshape(new_shape);
+
+  return Tensor(_storage, new_shape, strides_for(new_shape), _offset, _dtype);
 }
 
 // Allows negative indexing too
 Tensor Tensor::transpose(int64_t dim1, int64_t dim2) const {
   int ndim = _shape.size();
   if (dim1 < 0)
-    dim1 = ndim - dim1;
+    dim1 = ndim + dim1;
   if (dim2 < 0)
-    dim2 = ndim - dim2;
+    dim2 = ndim + dim2;
 
   if (dim1 < 0 || dim2 < 0 || dim1 >= ndim || dim2 >= ndim) {
     throw std::invalid_argument("The provided dimensions are not transposable");
@@ -82,7 +87,7 @@ Tensor Tensor::transpose(int64_t dim1, int64_t dim2) const {
 
   std::swap(new_shape[dim1], new_shape[dim2]);
   std::swap(new_strides[dim1], new_strides[dim2]);
-  return Tensor(_storage, new_shape, new_strides, 0, _dtype);
+  return Tensor(_storage, new_shape, new_strides, _offset, _dtype);
 }
 
 static bool next_index(std::vector<int64_t> &idx, const std::vector<int64_t> &shape) {

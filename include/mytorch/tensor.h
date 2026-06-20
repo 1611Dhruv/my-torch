@@ -98,7 +98,7 @@ template <typename T> T &Tensor::item() {
   if (_shape.size() != 0) {
     throw std::invalid_argument("Please call item on a singleton tensor");
   }
-  return *typeptr<T>(_dtype, _storage.get() + _offset);
+  return *typeptr<T>(_dtype, _storage.get() + _offset * itemsize(_dtype));
 }
 
 template <typename T> T *Tensor::data_ptr() { return typeptr<T>(_dtype, _storage.get() + _offset * itemsize(_dtype)); }
