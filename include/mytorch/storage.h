@@ -31,6 +31,8 @@ private:
   std::size_t *_refcount;
   size_t _size;
   Device _device;
+
+  void release();
 };
 
 } // namespace torch
