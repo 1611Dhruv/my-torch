@@ -63,12 +63,12 @@ TEST(TensorTest, AtIndexingMatchesRowMajorLayout) {
   Tensor t({2, 3}, DType::Float32);
   // fill via flat buffer: value = row*10 + col
   float *p = t.data_ptr<float>();
-  for (int64_t i = 0; i < 2; ++i)
-    for (int64_t j = 0; j < 3; ++j)
+  for (int i = 0; i < 2; ++i)
+    for (int j = 0; j < 3; ++j)
       p[i * 3 + j] = static_cast<float>(i * 10 + j);
   // read back via at<T>({i,j})
-  for (int64_t i = 0; i < 2; ++i)
-    for (int64_t j = 0; j < 3; ++j)
+  for (int i = 0; i < 2; ++i)
+    for (int j = 0; j < 3; ++j)
       EXPECT_FLOAT_EQ((t.at<float>({i, j})), static_cast<float>(i * 10 + j));
 }
 
@@ -126,9 +126,13 @@ TEST(TensorTest, ReshapeOfContiguousSharesStorage) {
 TEST(TensorTest, IndexReturnsSubview) {
   Tensor t({2, 3});
   Tensor row = t[1];
+
+  float *row_data = row.data_ptr<float>();
+  row_data[1] = 3.;
+
   EXPECT_EQ(row.ndim(), 1);
   EXPECT_EQ(row.shape(), (Shape{3}));
-  EXPECT_EQ(row.data_ptr<float>(), t.data_ptr<float>()); // shares storage
+  EXPECT_EQ(t.at<float>({1, 1}), 3.); // shares storage
 }
 
 // --- contiguous() -----------------------------------------------------------

@@ -125,12 +125,12 @@ Tensor Tensor::operator[](int64_t i) const {
 
   std::vector<int64_t> new_shape(N - 1);
   std::vector<int64_t> new_strides(N - 1);
-  for (int64_t i = 0; i < N; i++) {
+  for (int64_t i = 0; i < N - 1; i++) {
     new_shape[i] = _shape[i + 1];
     new_strides[i] = _strides[i + 1];
   }
 
-  return Tensor(_storage, new_shape, new_strides, i * _strides[0] * itemsize(_dtype), _dtype);
+  return Tensor(_storage, new_shape, new_strides, i * _strides[0], _dtype);
 }
 
 // Metadata Accessors

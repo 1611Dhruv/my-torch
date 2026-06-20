@@ -84,14 +84,14 @@ template <typename T> T &Tensor::at(std::initializer_list<int64_t> idx) {
     if (curr >= N) {
       throw std::invalid_argument("Too many indexes provide, dim doesn't match");
     }
-    elm_off += _strides[curr];
+    elm_off += _strides[curr] * *it;
     curr++;
   }
   if (curr != N) {
     throw std::invalid_argument("Please index all the way to one value");
   }
 
-  return *typeptr<T>(_dtype, _storage.get() + elm_off);
+  return *typeptr<T>(_dtype, _storage.get() + elm_off * itemsize(_dtype));
 }
 
 template <typename T> T &Tensor::item() {
@@ -101,7 +101,7 @@ template <typename T> T &Tensor::item() {
   return *typeptr<T>(_dtype, _storage.get() + _offset);
 }
 
-template <typename T> T *Tensor::data_ptr() { return typeptr<T>(_dtype, _storage.get() + _offset); }
+template <typename T> T *Tensor::data_ptr() { return typeptr<T>(_dtype, _storage.get() + _offset * itemsize(_dtype)); }
 
 } // namespace torch
 #endif
