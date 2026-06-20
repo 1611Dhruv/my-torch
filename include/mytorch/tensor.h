@@ -11,6 +11,8 @@ namespace torch {
 enum class DType { Float32, Int32, UInt8 };
 size_t itemsize(DType type);
 
+void manual_seed(uint64_t);
+
 class Tensor {
 public:
   Tensor(std::vector<int64_t> shape, DType dtype = DType::Float32, Device device = CPU);

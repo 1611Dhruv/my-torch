@@ -1,6 +1,7 @@
 #include "mytorch/tensor.h"
 #include "mytorch/storage.h"
 #include <cassert>
+#include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
@@ -185,14 +186,20 @@ Tensor Tensor::ones(std::vector<int64_t> shape, DType dtype, Device device) {
   return t;
 }
 
+static std::mt19937 &rand_generator() {
+  static std::mt19937 gen(std::random_device{}());
+  return gen;
+}
+
+void manual_seed(uint64_t seed) { rand_generator().seed(seed); }
+
 Tensor Tensor::rand(std::vector<int64_t> shape, Device device) {
   Tensor t(shape, torch::DType::Float32, device);
   int64_t n = t.numel();
   float *p = t.data_ptr<float>();
-  std::mt19937 gen(random());
   std::uniform_real_distribution<float> dist(0.0f, 1.0f);
   for (int64_t i = 0; i < n; i++) {
-    p[i] = dist(gen);
+    p[i] = dist(rand_generator());
   }
 
   return t;

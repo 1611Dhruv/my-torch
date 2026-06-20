@@ -192,3 +192,26 @@ TEST(TensorTest, OnesAreAllOne) {
   for (int i = 0; i < 5; ++i)
     EXPECT_FLOAT_EQ(t.data_ptr<float>()[i], 1.0f);
 }
+
+// --- rng --------------------------------------------------------------------
+
+TEST(TensorTest, ManualSeedIsReproducible) {
+  torch::manual_seed(42);
+  Tensor a = Tensor::rand({5}, CPU);
+  torch::manual_seed(42);
+  Tensor b = Tensor::rand({5}, CPU);
+  for (int i = 0; i < 5; ++i)
+    EXPECT_FLOAT_EQ(a.data_ptr<float>()[i], b.data_ptr<float>()[i]);
+}
+
+TEST(TensorTest, DifferentSeedsDiffer) {
+  torch::manual_seed(1);
+  Tensor a = Tensor::rand({5}, CPU);
+  torch::manual_seed(2);
+  Tensor b = Tensor::rand({5}, CPU);
+  bool all_equal = true;
+  for (int i = 0; i < 5; ++i)
+    if (a.data_ptr<float>()[i] != b.data_ptr<float>()[i])
+      all_equal = false;
+  EXPECT_FALSE(all_equal);
+}
