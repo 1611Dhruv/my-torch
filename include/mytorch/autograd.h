@@ -33,6 +33,8 @@ public:
     }
   }
 
+  void backward();
+
   void zero_grad() { _grad = std::nullopt; }
 
 private:

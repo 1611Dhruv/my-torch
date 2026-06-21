@@ -1,7 +1,39 @@
 #include "mytorch/autograd.h"
+#include <stack>
+#include <unordered_set>
 
 namespace torch {
 namespace autograd {
+
+void Variable::backward() {
+  // Topo sort and then accumulate
+
+  // If inputs are empty or grad doesn't have value take lite
+
+  // Otherwise start exploring
+  std::stack<Variable *> order;
+  std::unordered_set<Variable *> seen;
+
+  auto dfs = [&](auto &self, Variable *curr) -> void {
+    for (const auto &nxt : curr->_inputs) {
+      if (!seen.count(nxt.get())) {
+        self(self, nxt.get());
+        seen.insert(nxt.get());
+      }
+    }
+    order.push(curr);
+  };
+  dfs(dfs, this);
+
+  while (!order.empty()) {
+    auto curr = order.top();
+    order.pop();
+
+    if (curr->_inputs.empty() || !curr->has_grad())
+      continue;
+    curr->_backward(curr->_grad.value());
+  }
+}
 
 std::shared_ptr<Variable> add(std::shared_ptr<Variable> a, std::shared_ptr<Variable> b) {
   // Copy the backward by value and not reference (Reference ends at the end of endop)

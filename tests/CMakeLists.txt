@@ -23,3 +23,7 @@ gtest_discover_tests(tensor_test)
 add_executable(elementwise_test elementwise_test.cpp)
 target_link_libraries(elementwise_test PRIVATE mytorch GTest::gtest_main)
 gtest_discover_tests(elementwise_test)
+
+add_executable(autograd_test autograd_test.cpp)
+target_link_libraries(autograd_test PRIVATE mytorch GTest::gtest_main)
+gtest_discover_tests(autograd_test)
