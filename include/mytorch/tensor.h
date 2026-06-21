@@ -78,6 +78,13 @@ template <typename T> T *typeptr(DType type, std::byte *buff) {
   return reinterpret_cast<T *>(buff);
 }
 
+template <typename T> const T *typeptr(DType type, const std::byte *buff) {
+  if (dtype_of<T>() != type) {
+    throw std::invalid_argument("Type cannot be casted");
+  }
+  return reinterpret_cast<const T *>(buff);
+}
+
 template <typename T> T &Tensor::at(std::initializer_list<int64_t> idx) {
   int64_t N = static_cast<int64_t>(_shape.size());
   int64_t curr = 0;

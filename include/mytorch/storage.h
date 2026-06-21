@@ -2,7 +2,6 @@
 #define STORAGE_H
 
 #include <cstddef>
-#include <cstdio>
 
 namespace torch {
 enum Device { CPU, CUDA };

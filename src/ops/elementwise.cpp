@@ -4,7 +4,8 @@ namespace torch {
 namespace cpu {
 
 template <typename T> static void add_kernel(const Tensor &a, const Tensor &b, Tensor &out) {
-  T *a_data = a.data_ptr<T>();
+  const T *a_data = a.data_ptr<T>();
+  T *out_data = out.data_ptr<T>();
 }
 
 // Add operation for a basic CPU based tensor math

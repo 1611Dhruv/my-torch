@@ -10,12 +10,15 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON) # let clangd/IDEs find include paths
 add_library(mytorch
   src/storage.cpp
   src/tensor.cpp
-  src/ops/add.cpp
+  src/ops/elementwise.cpp
   src/ops/matmul.cpp
   #  src/data/mnist.cpp
 )
 target_include_directories(mytorch PUBLIC include)
 target_compile_features(mytorch PUBLIC cxx_std_20)
+
+find_package(CUDAToolkit REQUIRED)
+target_link_libraries(mytorch PUBLIC CUDA::cudart)
 
 # Example
 add_executable(hello examples/hello_world.cpp)

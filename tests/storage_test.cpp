@@ -7,7 +7,7 @@
 // Run:  cmake -S . -B build && cmake --build build && ctest --test-dir build
 
 #include "mytorch/storage.h"
-#include <cstring>
+#include "mytorch/cuda_utils.h"
 #include <gtest/gtest.h>
 
 using torch::Device;
@@ -117,4 +117,28 @@ TEST(StorageTest, MoveAssignTransfersAndReleases) {
   EXPECT_EQ(a.use_count(), 0u);
   EXPECT_EQ(b.get(), buf);
   EXPECT_EQ(b.use_count(), 1u);
+}
+
+// --- cuda device memory -----------------------------------------------------
+
+// A CUDA Storage's buffer lives in VRAM, so bytes copied host->device->host
+// must survive the round trip. This is the first test to actually exercise the
+// cudaMalloc path (everything above runs on CPU).
+TEST(StorageTest, CudaBufferRoundTrips) {
+  constexpr size_t n = 16;
+  std::byte src[n];
+  for (size_t i = 0; i < n; ++i)
+    src[i] = static_cast<std::byte>(i);
+
+  Storage s(n, Device::CUDA);
+  EXPECT_EQ(s.device(), Device::CUDA);
+  ASSERT_NE(s.get(), nullptr);
+
+  CUDA_CHECK(cudaMemcpy(s.get(), src, n, cudaMemcpyHostToDevice));
+
+  std::byte dst[n];
+  CUDA_CHECK(cudaMemcpy(dst, s.get(), n, cudaMemcpyDeviceToHost));
+
+  for (size_t i = 0; i < n; ++i)
+    EXPECT_EQ(dst[i], src[i]);
 }
