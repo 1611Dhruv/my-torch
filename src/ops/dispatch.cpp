@@ -4,7 +4,7 @@
 
 namespace torch {
 
-Tensor add(const Tensor &a, const Tensor &b) {
+template <typename Op> Tensor elementwise_dispatch(const Tensor &a, const Tensor &b, Op cpu_op, Op cuda_op) {
   if (a.dtype() != b.dtype()) {
     throw std::invalid_argument("add: tensors should have the same dtype, casting not supported yet");
   }
@@ -18,9 +18,11 @@ Tensor add(const Tensor &a, const Tensor &b) {
   }
 
   if (a.device() == CPU)
-    return cpu::add(a, b);
+    return cpu_op(a, b);
   else
-    return cuda::add(a, b);
+    return cuda_op(a, b);
 }
+
+Tensor add(const Tensor &a, const Tensor &b) { return elementwise_dispatch(a, b, cpu::add, cuda::add); }
 
 } // namespace torch

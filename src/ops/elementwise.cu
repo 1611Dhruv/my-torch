@@ -7,17 +7,17 @@
 namespace torch {
 namespace cuda {
 
-template <typename scalar_t>
-__global__ void add_kernel(const scalar_t *a, const scalar_t *b, scalar_t *out, int64_t n) {
+template <typename scalar_t, typename Op>
+__global__ void binary_kernel(const scalar_t *a, const scalar_t *b, scalar_t *out, int64_t n, Op op) {
   int64_t i = blockIdx.x * blockDim.x + threadIdx.x;
 
   if (i >= n)
     return;
 
-  out[i] = a[i] + b[i];
+  out[i] = op(a[i], b[i]);
 }
 
-Tensor add(const Tensor &a, const Tensor &b) {
+template <typename Op> Tensor elementwise_wrapper(const Tensor &a, const Tensor &b, Op op) {
   assert(a.dtype() == b.dtype());
   assert(a.shape() == b.shape());
 
@@ -32,14 +32,26 @@ Tensor add(const Tensor &a, const Tensor &b) {
   int64_t blocks = (n + threads - 1) / threads;
 
   DISPATCH_OP(a.dtype(), [&] {
-    add_kernel<scalar_t>
-        <<<blocks, threads>>>(a.data_ptr<scalar_t>(), b.data_ptr<scalar_t>(), out.data_ptr<scalar_t>(), n);
+    binary_kernel<scalar_t>
+        <<<blocks, threads>>>(a.data_ptr<scalar_t>(), b.data_ptr<scalar_t>(), out.data_ptr<scalar_t>(), n, op);
   });
 
   CUDA_CHECK(cudaGetLastError());
   CUDA_CHECK(cudaDeviceSynchronize()); // TODO: Remove in prod
 
   return out;
+}
+
+Tensor add(const Tensor &a, const Tensor &b) {
+  return elementwise_wrapper(a, b, [] __device__(auto x, auto y) { return x + y; });
+}
+
+Tensor sub(const Tensor &a, const Tensor &b) {
+  return elementwise_wrapper(a, b, [] __device__(auto x, auto y) { return x - y; });
+}
+
+Tensor mult(const Tensor &a, const Tensor &b) {
+  return elementwise_wrapper(a, b, [] __device__(auto x, auto y) { return x * y; });
 }
 
 } // namespace cuda
