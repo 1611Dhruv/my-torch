@@ -11,7 +11,9 @@ add_library(mytorch
   src/storage.cpp
   src/tensor.cpp
   src/ops/elementwise.cpp
+  src/ops/dispatch.cpp
   src/ops/matmul.cpp
+  src/autograd/functional.cpp
   #  src/data/mnist.cpp
 )
 target_include_directories(mytorch PUBLIC include)
