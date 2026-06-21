@@ -273,6 +273,52 @@ TEST(ElementwiseCudaTest, AddsElementwise) {
     EXPECT_FLOAT_EQ(hc[i], ha[i] + hb[i]);
 }
 
+TEST(ElementwiseCudaTest, SubsElementwise) {
+  constexpr int64_t n = 1000;
+
+  std::vector<float> ha(n), hb(n);
+  for (int64_t i = 0; i < n; ++i) {
+    ha[i] = static_cast<float>(i);
+    hb[i] = static_cast<float>(2 * i + 1);
+  }
+
+  Tensor a({n}, DType::Float32, CUDA);
+  Tensor b({n}, DType::Float32, CUDA);
+  CUDA_CHECK(cudaMemcpy(a.data_ptr<float>(), ha.data(), n * sizeof(float), cudaMemcpyHostToDevice));
+  CUDA_CHECK(cudaMemcpy(b.data_ptr<float>(), hb.data(), n * sizeof(float), cudaMemcpyHostToDevice));
+
+  Tensor c = torch::cuda::sub(a, b);
+
+  std::vector<float> hc(n);
+  CUDA_CHECK(cudaMemcpy(hc.data(), c.data_ptr<float>(), n * sizeof(float), cudaMemcpyDeviceToHost));
+
+  for (int64_t i = 0; i < n; ++i)
+    EXPECT_FLOAT_EQ(hc[i], ha[i] - hb[i]);
+}
+
+TEST(ElementwiseCudaTest, MultipliesElementwise) {
+  constexpr int64_t n = 1000;
+
+  std::vector<float> ha(n), hb(n);
+  for (int64_t i = 0; i < n; ++i) {
+    ha[i] = static_cast<float>(i);
+    hb[i] = static_cast<float>(2 * i + 1);
+  }
+
+  Tensor a({n}, DType::Float32, CUDA);
+  Tensor b({n}, DType::Float32, CUDA);
+  CUDA_CHECK(cudaMemcpy(a.data_ptr<float>(), ha.data(), n * sizeof(float), cudaMemcpyHostToDevice));
+  CUDA_CHECK(cudaMemcpy(b.data_ptr<float>(), hb.data(), n * sizeof(float), cudaMemcpyHostToDevice));
+
+  Tensor c = torch::cuda::mult(a, b);
+
+  std::vector<float> hc(n);
+  CUDA_CHECK(cudaMemcpy(hc.data(), c.data_ptr<float>(), n * sizeof(float), cudaMemcpyDeviceToHost));
+
+  for (int64_t i = 0; i < n; ++i)
+    EXPECT_FLOAT_EQ(hc[i], ha[i] * hb[i]);
+}
+
 // Non contiguous must throw
 TEST(ElementwiseCudaTest, ThrowsOnNonContiguous) {
   Tensor a({4}, DType::Float32, CUDA);
