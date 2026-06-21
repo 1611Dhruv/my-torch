@@ -10,7 +10,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON) # let clangd/IDEs find include paths
 add_library(mytorch
   src/storage.cpp
   src/tensor.cpp
-  src/ops/add.cpp
+  src/ops/elementwise.cpp
   src/ops/matmul.cpp
   #  src/data/mnist.cpp
 )
