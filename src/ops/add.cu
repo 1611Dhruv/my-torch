@@ -1,5 +1,6 @@
 #include "mytorch/cuda_utils.h"
 #include "mytorch/ops/ops.h"
+#include <cassert>
 #include <cstdint>
 #include <cuda_runtime_api.h>
 
@@ -17,13 +18,8 @@ __global__ void add_kernel(const scalar_t *a, const scalar_t *b, scalar_t *out, 
 }
 
 Tensor add(const Tensor &a, const Tensor &b) {
-  if (a.dtype() != b.dtype()) {
-    throw std::invalid_argument("cuda add: tensors should have the same dtype, casting not supported yet");
-  }
-
-  if (a.shape() != b.shape()) {
-    throw std::invalid_argument("cuda add: tensors must have the same shape");
-  }
+  assert(a.dtype() == b.dtype());
+  assert(a.shape() == b.shape());
 
   if (!a.is_contiguous() || !b.is_contiguous()) {
     throw std::invalid_argument("cuda add: tensors must be contiguous"); // Make contiguous() cuda aware
@@ -41,7 +37,7 @@ Tensor add(const Tensor &a, const Tensor &b) {
   });
 
   CUDA_CHECK(cudaGetLastError());
-  CUDA_CHECK(cudaDeviceSynchronize()); // Remove in prod
+  CUDA_CHECK(cudaDeviceSynchronize()); // TODO: Remove in prod
 
   return out;
 }

@@ -225,18 +225,25 @@ TEST(ElementwiseTest, AddOutputIsFreshContiguous) {
 // --- error paths -----------------------------------------------------------
 
 // NOTE: Eventual dispatch will handle all of this
-TEST(ElementwiseTest, DISABLED_AddShapeMismatchThrows) {
+TEST(ElementwiseTest, AddShapeMismatchThrows) {
   // same dtype, incompatible shapes -> throws (no broadcasting yet).
   Tensor a({2, 3});
   Tensor b({3, 2});
-  EXPECT_THROW(torch::cpu::add(a, b), std::invalid_argument);
+  EXPECT_THROW(torch::add(a, b), std::invalid_argument);
 }
 
-TEST(ElementwiseTest, DISABLED_AddDtypeMismatchThrows) {
+TEST(ElementwiseTest, AddDtypeMismatchThrows) {
   // matching shapes, different dtypes -> throws (no casting yet).
   Tensor a({2, 3}, DType::Float32);
   Tensor b({2, 3}, DType::Int32);
-  EXPECT_THROW(torch::cpu::add(a, b), std::invalid_argument);
+  EXPECT_THROW(torch::add(a, b), std::invalid_argument);
+}
+
+TEST(ElementwiseTest, AddDeviceMismatchThrows) {
+  // matching shapes, matching dtypes, different device -> throws (no .to() yet).
+  Tensor a({2, 3}, DType::Float32, CPU);
+  Tensor b({2, 3}, DType::Float32, CUDA);
+  EXPECT_THROW(torch::add(a, b), std::invalid_argument);
 }
 
 // --- CUDA: the GPU add kernel (requires a device at runtime) ----------------
@@ -266,9 +273,9 @@ TEST(ElementwiseCudaTest, AddsElementwise) {
     EXPECT_FLOAT_EQ(hc[i], ha[i] + hb[i]);
 }
 
-// Mismatched shapes must throw, not launch.
-TEST(ElementwiseCudaTest, ThrowsOnShapeMismatch) {
+// Non contiguous must throw
+TEST(ElementwiseCudaTest, ThrowsOnNonContiguous) {
   Tensor a({4}, DType::Float32, CUDA);
-  Tensor b({5}, DType::Float32, CUDA);
-  EXPECT_THROW(torch::cuda::add(a, b), std::invalid_argument);
+  Tensor b({4}, DType::Float32, CUDA);
+  EXPECT_THROW(torch::cuda::add(a, b.transpose(0, 1)), std::invalid_argument);
 }

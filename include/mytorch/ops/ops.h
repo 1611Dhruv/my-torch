@@ -2,6 +2,8 @@
 
 namespace torch {
 
+Tensor add(const Tensor &a, const Tensor &b);
+
 namespace cpu {
 
 Tensor add(const Tensor &a, const Tensor &b);
