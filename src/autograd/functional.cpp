@@ -15,6 +15,9 @@ void Variable::backward() {
   std::unordered_set<Variable *> seen;
   std::stack<std::pair<Variable *, bool>> explore;
 
+  // Seed this grad to ONES
+  _grad = Tensor::ones_like(_t);
+
   explore.push({this, false});
   seen.insert(this);
   while (!explore.empty()) {

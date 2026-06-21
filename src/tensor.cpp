@@ -168,6 +168,7 @@ Tensor Tensor::zeros_like(const Tensor &other) {
   std::memset(t._storage.get(), 0, t._storage.size());
   return t;
 }
+Tensor Tensor::ones_like(const Tensor &other) { return Tensor::ones(other.shape(), other.dtype(), other.device()); }
 
 Tensor Tensor::ones(std::vector<int64_t> shape, DType dtype, Device device) {
   Tensor t(shape, dtype, device);
