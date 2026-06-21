@@ -60,6 +60,11 @@ Tensor exp(const Tensor &a);
 
 /*
  NOTE: Future
+<<<<<<< HEAD
+=======
+Tensor neg(const Tensor &a);
+Tensor matmul(const Tensor &a, const Tensor &b);
+>>>>>>> upstream/main
 Tensor sin(Tensor &a);
 Tensor cos(Tensor &a);
 Tensor exp(Tensor &a);
