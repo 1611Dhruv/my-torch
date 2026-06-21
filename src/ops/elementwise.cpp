@@ -1,4 +1,4 @@
-#include "mytorch/ops/ops.h"
+#include "mytorch/ops.h"
 #include <cassert>
 #include <cmath>
 #include <stack>
@@ -109,7 +109,7 @@ Tensor add(const Tensor &a, const Tensor &b) {
   assert(a.dtype() == b.dtype());
   assert(a.shape() == b.shape());
 
-  Tensor out = torch::Tensor::zeros(a.shape(), a.dtype(), a.device());
+  Tensor out = torch::Tensor::zeros_like(a);
   DISPATCH_OP(a.dtype(),
               [&] { binary_elementwise<scalar_t>(a, b, out, [](scalar_t x, scalar_t y) { return x + y; }); });
   return out;
@@ -119,7 +119,7 @@ Tensor sub(const Tensor &a, const Tensor &b) {
   assert(a.dtype() == b.dtype());
   assert(a.shape() == b.shape());
 
-  Tensor out = torch::Tensor::zeros(a.shape(), a.dtype(), a.device());
+  Tensor out = torch::Tensor::zeros_like(a);
   DISPATCH_OP(a.dtype(),
               [&] { binary_elementwise<scalar_t>(a, b, out, [](scalar_t x, scalar_t y) { return x - y; }); });
   return out;
@@ -129,27 +129,33 @@ Tensor mult(const Tensor &a, const Tensor &b) {
   assert(a.dtype() == b.dtype());
   assert(a.shape() == b.shape());
 
-  Tensor out = torch::Tensor::zeros(a.shape(), a.dtype(), a.device());
+  Tensor out = torch::Tensor::zeros_like(a);
   DISPATCH_OP(a.dtype(),
               [&] { binary_elementwise<scalar_t>(a, b, out, [](scalar_t x, scalar_t y) { return x * y; }); });
   return out;
 }
 
 Tensor exp(const Tensor &a) {
-  Tensor out = torch::Tensor::zeros(a.shape(), a.dtype(), a.device());
+  Tensor out = torch::Tensor::zeros_like(a);
   DISPATCH_OP(a.dtype(), [&] { unary_elementwise<scalar_t>(a, out, [](scalar_t x) { return std::exp(x); }); });
   return out;
 }
 
 Tensor sin(const Tensor &a) {
-  Tensor out = torch::Tensor::zeros(a.shape(), a.dtype(), a.device());
+  Tensor out = torch::Tensor::zeros_like(a);
   DISPATCH_OP(a.dtype(), [&] { unary_elementwise<scalar_t>(a, out, [](scalar_t x) { return std::sin(x); }); });
   return out;
 }
 
 Tensor cos(const Tensor &a) {
-  Tensor out = torch::Tensor::zeros(a.shape(), a.dtype(), a.device());
+  Tensor out = torch::Tensor::zeros_like(a);
   DISPATCH_OP(a.dtype(), [&] { unary_elementwise<scalar_t>(a, out, [](scalar_t x) { return std::cos(x); }); });
+  return out;
+}
+
+Tensor neg(const Tensor &a) {
+  Tensor out = torch::Tensor::zeros_like(a);
+  DISPATCH_OP(a.dtype(), [&] { unary_elementwise<scalar_t>(a, out, [](scalar_t x) { return -x; }); })
   return out;
 }
 
