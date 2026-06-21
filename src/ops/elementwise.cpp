@@ -31,7 +31,7 @@ template <typename T, typename Op> static void unary_elementwise(const Tensor &a
   };
 
   std::stack<Frame> frames;
-  frames.push({0, 0, 0, 0});
+  frames.push({0, 0, 0});
 
   while (!frames.empty()) {
     auto f = frames.top();
