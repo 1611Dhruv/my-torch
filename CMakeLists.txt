@@ -1,9 +1,11 @@
 cmake_minimum_required(VERSION 3.15)
-project(MyTorch LANGUAGES CXX)
+project(MyTorch LANGUAGES CXX CUDA)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON) # let clangd/IDEs find include paths
+set(CMAKE_CUDA_STANDARD 20)
+set(CMAKE_CUDA_ARCHITECTURES native)
 
 # Core library: everything in src/ links into one target the tests + examples use.
 # Empty .cpp files are fine -- add real ones here as you implement them.
@@ -12,6 +14,7 @@ add_library(mytorch
   src/tensor.cpp
   src/ops/elementwise.cpp
   src/ops/matmul.cpp
+  src/ops/add.cu
   #  src/data/mnist.cpp
 )
 target_include_directories(mytorch PUBLIC include)

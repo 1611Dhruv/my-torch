@@ -21,9 +21,10 @@ Tensor ln(Tensor &a);
 
 namespace cuda {
 
+Tensor add(const Tensor &a, const Tensor &b);
+
 /*
  NOTE: Future
-Tensor add(const Tensor &a, const Tensor &b);
 Tensor sub(const Tensor &a, const Tensor &b);
 Tensor mult(const Tensor &a, const Tensor &b);
 Tensor matmul(const Tensor &a, const Tensor &b);

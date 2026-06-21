@@ -19,3 +19,7 @@ gtest_discover_tests(storage_test)
 add_executable(tensor_test tensor_test.cpp)
 target_link_libraries(tensor_test PRIVATE mytorch GTest::gtest_main)
 gtest_discover_tests(tensor_test)
+
+add_executable(cuda_add_test cuda_add_test.cpp)
+target_link_libraries(cuda_add_test PRIVATE mytorch GTest::gtest_main)
+gtest_discover_tests(cuda_add_test)
