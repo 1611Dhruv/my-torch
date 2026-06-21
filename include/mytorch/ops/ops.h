@@ -1,19 +1,37 @@
+#ifndef OPS_H
+#define OPS_H
+
 #include "mytorch/tensor.h"
 
 namespace torch {
-
-namespace cpu {
-
+// Carries the device agnostic dispatchers
+// Will perform type checks device checks and all
 Tensor add(const Tensor &a, const Tensor &b);
 
 /*
  NOTE: Future
 Tensor sub(const Tensor &a, const Tensor &b);
 Tensor mult(const Tensor &a, const Tensor &b);
+Tensor sin(const Tensor &a);
+Tensor cos(const Tensor &a);
+Tensor exp(const Tensor &a);
 Tensor matmul(const Tensor &a, const Tensor &b);
-Tensor sin(Tensor &a);
-Tensor cos(Tensor &a);
-Tensor exp(Tensor &a);
+Tensor ln(Tensor &a);
+*/
+
+namespace cpu {
+
+// CPU specific dispatchers
+Tensor add(const Tensor &a, const Tensor &b);
+Tensor sub(const Tensor &a, const Tensor &b);
+Tensor mult(const Tensor &a, const Tensor &b);
+Tensor sin(const Tensor &a);
+Tensor cos(const Tensor &a);
+Tensor exp(const Tensor &a);
+
+/*
+ NOTE: Future
+Tensor matmul(const Tensor &a, const Tensor &b);
 Tensor ln(Tensor &a);
 */
 
@@ -21,6 +39,7 @@ Tensor ln(Tensor &a);
 
 namespace cuda {
 
+// CUDA specific dispatchers
 /*
  NOTE: Future
 Tensor add(const Tensor &a, const Tensor &b);
@@ -36,3 +55,5 @@ Tensor ln(Tensor &a);
 } // namespace cuda
 
 } // namespace torch
+
+#endif
