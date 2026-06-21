@@ -1,4 +1,4 @@
-#include "mytorch/ops/ops.h"
+#include "mytorch/ops.h"
 #include "mytorch/storage.h"
 #include <stdexcept>
 
@@ -29,5 +29,15 @@ Tensor add(const Tensor &a, const Tensor &b) { return elementwise_dispatch(a, b,
 Tensor sub(const Tensor &a, const Tensor &b) { return elementwise_dispatch(a, b, cpu::sub, cuda::sub); }
 
 Tensor mult(const Tensor &a, const Tensor &b) { return elementwise_dispatch(a, b, cpu::mult, cuda::mult); }
+
+// Unary; no CUDA kernel yet, so dispatched CPU-only for now.
+Tensor neg(const Tensor &a) {
+  switch (a.device()) {
+  case torch::Device::CPU:
+    return torch::cpu::neg(a);
+  default:
+    throw std::logic_error("Unsupported device");
+  }
+}
 
 } // namespace torch

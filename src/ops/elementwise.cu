@@ -1,5 +1,5 @@
 #include "mytorch/cuda_utils.h"
-#include "mytorch/ops/ops.h"
+#include "mytorch/ops.h"
 #include <cassert>
 #include <cstdint>
 #include <cuda_runtime_api.h>

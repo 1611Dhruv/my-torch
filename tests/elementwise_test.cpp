@@ -15,7 +15,7 @@
 //       ctest --test-dir build -R ElementwiseCuda       (GPU only)
 
 #include "mytorch/cuda_utils.h"
-#include "mytorch/ops/ops.h"
+#include "mytorch/ops.h"
 #include "mytorch/tensor.h"
 #include <gtest/gtest.h>
 #include <stdexcept>

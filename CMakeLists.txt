@@ -19,6 +19,7 @@ add_library(mytorch
   src/ops/elementwise.cu
   src/ops/matmul.cpp
   src/ops/dispatch.cpp
+  src/autograd/functional.cpp
   #  src/data/mnist.cpp
 )
 target_include_directories(mytorch PUBLIC include)

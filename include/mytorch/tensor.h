@@ -41,6 +41,7 @@ public:
 
   // static factories
   static Tensor zeros(std::vector<int64_t> shape, DType dtype, Device device);
+  static Tensor zeros_like(const Tensor &other);
   static Tensor ones(std::vector<int64_t> shape, DType dtype, Device device);
   static Tensor rand(std::vector<int64_t> shape, Device device);
 
