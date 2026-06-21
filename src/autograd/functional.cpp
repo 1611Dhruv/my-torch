@@ -13,17 +13,22 @@ void Variable::backward() {
   // Otherwise start exploring
   std::stack<Variable *> order;
   std::unordered_set<Variable *> seen;
+  std::stack<std::pair<Variable *, bool>> explore;
 
-  auto dfs = [&](auto &self, Variable *curr) -> void {
-    for (const auto &nxt : curr->_inputs) {
-      if (!seen.count(nxt.get())) {
-        self(self, nxt.get());
-        seen.insert(nxt.get());
+  explore.push({this, false});
+  while (!explore.empty()) {
+    auto [node, finalize] = explore.top();
+    explore.pop();
+
+    if (finalize) {
+      order.push(node);
+    } else {
+      explore.push({node, true});
+      for (const auto &input : node->_inputs) {
+        explore.push({input.get(), false});
       }
     }
-    order.push(curr);
-  };
-  dfs(dfs, this);
+  }
 
   while (!order.empty()) {
     auto curr = order.top();
