@@ -16,6 +16,7 @@ void Variable::backward() {
   std::stack<std::pair<Variable *, bool>> explore;
 
   explore.push({this, false});
+  seen.insert(this);
   while (!explore.empty()) {
     auto [node, finalize] = explore.top();
     explore.pop();
@@ -25,7 +26,10 @@ void Variable::backward() {
     } else {
       explore.push({node, true});
       for (const auto &input : node->_inputs) {
+        if (seen.count(input.get()))
+          continue;
         explore.push({input.get(), false});
+        seen.insert(input.get());
       }
     }
   }
