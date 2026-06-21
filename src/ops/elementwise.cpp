@@ -1,4 +1,5 @@
 #include "mytorch/ops/ops.h"
+#include <cassert>
 #include <stack>
 
 namespace torch {
@@ -6,9 +7,7 @@ namespace cpu {
 
 // Helper which will walk through one tensor applying op and saving in out
 template <typename T, typename Op> static void unary_elementwise(const Tensor &a, Tensor &out, Op op) {
-  if (!out.is_contiguous() || out.shape() != a.shape()) {
-    throw std::runtime_error("out wasn't contiguous or had a different shape");
-  }
+  assert(out.is_contiguous() && out.shape() == a.shape());
 
   const T *a_data = a.data_ptr<T>();
   T *o_data = out.data_ptr<T>();
@@ -55,9 +54,7 @@ template <typename T, typename Op> static void unary_elementwise(const Tensor &a
 // Helper which will walk through the two tensors applying op and saving  in out
 template <typename T, typename Op>
 static void binary_elementwise(const Tensor &a, const Tensor &b, Tensor &out, Op op) {
-  if (!out.is_contiguous() || out.shape() != a.shape()) {
-    throw std::runtime_error("out wasn't contiguous or had a different shape");
-  }
+  assert(out.is_contiguous() && out.shape() == a.shape());
 
   const T *a_data = a.data_ptr<T>();
   const T *b_data = b.data_ptr<T>();
@@ -108,17 +105,32 @@ static void binary_elementwise(const Tensor &a, const Tensor &b, Tensor &out, Op
 // We will assume that we are working with scalar_t type
 // We dont work with a and b having different tensor types (for now ig? )
 Tensor add(const Tensor &a, const Tensor &b) {
-  if (a.dtype() != b.dtype()) {
-    throw std::invalid_argument("add: tensors should have the same dtype, casting not supported yet");
-  }
-
-  if (a.shape() != b.shape()) {
-    throw std::invalid_argument("add: tensors must have the same shape");
-  }
+  assert(a.dtype() == b.dtype());
+  assert(a.shape() == b.shape());
 
   Tensor out = torch::Tensor::zeros(a.shape(), a.dtype(), a.device());
   DISPATCH_OP(a.dtype(),
               [&] { binary_elementwise<scalar_t>(a, b, out, [](scalar_t x, scalar_t y) { return x + y; }); });
+  return out;
+}
+
+Tensor sub(const Tensor &a, const Tensor &b) {
+  assert(a.dtype() == b.dtype());
+  assert(a.shape() == b.shape());
+
+  Tensor out = torch::Tensor::zeros(a.shape(), a.dtype(), a.device());
+  DISPATCH_OP(a.dtype(),
+              [&] { binary_elementwise<scalar_t>(a, b, out, [](scalar_t x, scalar_t y) { return x - y; }); });
+  return out;
+}
+
+Tensor mult(const Tensor &a, const Tensor &b) {
+  assert(a.dtype() == b.dtype());
+  assert(a.shape() == b.shape());
+
+  Tensor out = torch::Tensor::zeros(a.shape(), a.dtype(), a.device());
+  DISPATCH_OP(a.dtype(),
+              [&] { binary_elementwise<scalar_t>(a, b, out, [](scalar_t x, scalar_t y) { return x * y; }); });
   return out;
 }
 
