@@ -1,15 +1,20 @@
-// Spec-by-tests for torch::cpu elementwise ops (add to start).
+// Spec-by-tests for torch elementwise ops (add to start), both CPU and CUDA.
 //
-// These pin the behavior of the CPU elementwise kernels: correct values on the
-// contiguous fast path, correct strided traversal on non-contiguous / offset
-// views, no mutation of inputs, and loud errors on misuse.
+// CPU tests (ElementwiseTest) pin the behavior of the CPU kernels: correct
+// values on the contiguous fast path, correct strided traversal on
+// non-contiguous / offset views, no mutation of inputs, and loud errors on
+// misuse. A good trick for the strided cases: don't hand-compute the expected
+// values, just compare against the same op run on .contiguous() inputs (the
+// fast path is your oracle).
 //
-// Bodies are intentionally left as TODOs -- fill them in. A good trick for the
-// strided cases: don't hand-compute the expected values, just compare against
-// the same op run on .contiguous() inputs (the fast path is your oracle).
+// CUDA tests (ElementwiseCudaTest) actually launch the GPU kernel, so they
+// require a CUDA device at runtime. Data is staged host->device with cudaMemcpy
+// (there's no .to(device) yet), the kernel runs, and the result is copied back.
 //
-// Run:  ctest --test-dir build -R Elementwise
+// Run:  ctest --test-dir build -R Elementwise           (both)
+//       ctest --test-dir build -R ElementwiseCuda       (GPU only)
 
+#include "mytorch/cuda_utils.h"
 #include "mytorch/ops/ops.h"
 #include "mytorch/tensor.h"
 #include <gtest/gtest.h>
@@ -17,6 +22,7 @@
 #include <vector>
 
 using torch::CPU;
+using torch::CUDA;
 using torch::DType;
 using torch::Tensor;
 using Shape = std::vector<int64_t>;
@@ -219,16 +225,103 @@ TEST(ElementwiseTest, AddOutputIsFreshContiguous) {
 // --- error paths -----------------------------------------------------------
 
 // NOTE: Eventual dispatch will handle all of this
-TEST(ElementwiseTest, DISABLED_AddShapeMismatchThrows) {
+TEST(ElementwiseTest, AddShapeMismatchThrows) {
   // same dtype, incompatible shapes -> throws (no broadcasting yet).
   Tensor a({2, 3});
   Tensor b({3, 2});
-  EXPECT_THROW(torch::cpu::add(a, b), std::invalid_argument);
+  EXPECT_THROW(torch::add(a, b), std::invalid_argument);
 }
 
-TEST(ElementwiseTest, DISABLED_AddDtypeMismatchThrows) {
+TEST(ElementwiseTest, AddDtypeMismatchThrows) {
   // matching shapes, different dtypes -> throws (no casting yet).
   Tensor a({2, 3}, DType::Float32);
   Tensor b({2, 3}, DType::Int32);
-  EXPECT_THROW(torch::cpu::add(a, b), std::invalid_argument);
+  EXPECT_THROW(torch::add(a, b), std::invalid_argument);
+}
+
+TEST(ElementwiseTest, AddDeviceMismatchThrows) {
+  // matching shapes, matching dtypes, different device -> throws (no .to() yet).
+  Tensor a({2, 3}, DType::Float32, CPU);
+  Tensor b({2, 3}, DType::Float32, CUDA);
+  EXPECT_THROW(torch::add(a, b), std::invalid_argument);
+}
+
+// --- CUDA: the GPU add kernel (requires a device at runtime) ----------------
+
+// n is intentionally NOT a multiple of the 256-thread block size, so the last
+// block is ragged and the kernel's `i >= n` bounds guard is exercised.
+TEST(ElementwiseCudaTest, AddsElementwise) {
+  constexpr int64_t n = 1000;
+
+  std::vector<float> ha(n), hb(n);
+  for (int64_t i = 0; i < n; ++i) {
+    ha[i] = static_cast<float>(i);
+    hb[i] = static_cast<float>(2 * i + 1);
+  }
+
+  Tensor a({n}, DType::Float32, CUDA);
+  Tensor b({n}, DType::Float32, CUDA);
+  CUDA_CHECK(cudaMemcpy(a.data_ptr<float>(), ha.data(), n * sizeof(float), cudaMemcpyHostToDevice));
+  CUDA_CHECK(cudaMemcpy(b.data_ptr<float>(), hb.data(), n * sizeof(float), cudaMemcpyHostToDevice));
+
+  Tensor c = torch::cuda::add(a, b);
+
+  std::vector<float> hc(n);
+  CUDA_CHECK(cudaMemcpy(hc.data(), c.data_ptr<float>(), n * sizeof(float), cudaMemcpyDeviceToHost));
+
+  for (int64_t i = 0; i < n; ++i)
+    EXPECT_FLOAT_EQ(hc[i], ha[i] + hb[i]);
+}
+
+TEST(ElementwiseCudaTest, SubsElementwise) {
+  constexpr int64_t n = 1000;
+
+  std::vector<float> ha(n), hb(n);
+  for (int64_t i = 0; i < n; ++i) {
+    ha[i] = static_cast<float>(i);
+    hb[i] = static_cast<float>(2 * i + 1);
+  }
+
+  Tensor a({n}, DType::Float32, CUDA);
+  Tensor b({n}, DType::Float32, CUDA);
+  CUDA_CHECK(cudaMemcpy(a.data_ptr<float>(), ha.data(), n * sizeof(float), cudaMemcpyHostToDevice));
+  CUDA_CHECK(cudaMemcpy(b.data_ptr<float>(), hb.data(), n * sizeof(float), cudaMemcpyHostToDevice));
+
+  Tensor c = torch::cuda::sub(a, b);
+
+  std::vector<float> hc(n);
+  CUDA_CHECK(cudaMemcpy(hc.data(), c.data_ptr<float>(), n * sizeof(float), cudaMemcpyDeviceToHost));
+
+  for (int64_t i = 0; i < n; ++i)
+    EXPECT_FLOAT_EQ(hc[i], ha[i] - hb[i]);
+}
+
+TEST(ElementwiseCudaTest, MultipliesElementwise) {
+  constexpr int64_t n = 1000;
+
+  std::vector<float> ha(n), hb(n);
+  for (int64_t i = 0; i < n; ++i) {
+    ha[i] = static_cast<float>(i);
+    hb[i] = static_cast<float>(2 * i + 1);
+  }
+
+  Tensor a({n}, DType::Float32, CUDA);
+  Tensor b({n}, DType::Float32, CUDA);
+  CUDA_CHECK(cudaMemcpy(a.data_ptr<float>(), ha.data(), n * sizeof(float), cudaMemcpyHostToDevice));
+  CUDA_CHECK(cudaMemcpy(b.data_ptr<float>(), hb.data(), n * sizeof(float), cudaMemcpyHostToDevice));
+
+  Tensor c = torch::cuda::mult(a, b);
+
+  std::vector<float> hc(n);
+  CUDA_CHECK(cudaMemcpy(hc.data(), c.data_ptr<float>(), n * sizeof(float), cudaMemcpyDeviceToHost));
+
+  for (int64_t i = 0; i < n; ++i)
+    EXPECT_FLOAT_EQ(hc[i], ha[i] * hb[i]);
+}
+
+// Non contiguous must throw
+TEST(ElementwiseCudaTest, ThrowsOnNonContiguous) {
+  Tensor a({4}, DType::Float32, CUDA);
+  Tensor b({4}, DType::Float32, CUDA);
+  EXPECT_THROW(torch::cuda::add(a, b.transpose(0, 1)), std::invalid_argument);
 }

@@ -1,9 +1,27 @@
 #include "mytorch/storage.h"
+#include "mytorch/cuda_utils.h"
+#include <cuda_runtime_api.h>
 
 namespace torch {
 
+static std::byte *device_alloc(size_t n, Device d) {
+  if (d == CPU)
+    return new std::byte[n];
+
+  std::byte *out;
+  CUDA_CHECK(cudaMalloc(reinterpret_cast<void **>(&out), n));
+  return out;
+}
+
+static void device_free(std::byte *p, Device d) {
+  if (d == CPU)
+    delete[] p;
+  else
+    CUDA_CHECK(cudaFree(p));
+}
+
 Storage::Storage(size_t num_bytes, Device device)
-    : _buffer(new std::byte[num_bytes]),
+    : _buffer(device_alloc(num_bytes, device)),
       _refcount(new size_t(1)),
       _size(num_bytes),
       _device(device) {}
@@ -23,7 +41,7 @@ void Storage::release() {
   if (_refcount) {
     *_refcount -= 1;
     if (*_refcount == 0) {
-      delete[] _buffer;
+      device_free(_buffer, _device);
       delete _refcount;
     }
   }
