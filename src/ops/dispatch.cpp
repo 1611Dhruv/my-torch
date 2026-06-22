@@ -47,15 +47,20 @@ Tensor exp(const Tensor &a) { return elementwise_unary_dispatch(a, cpu::exp, cud
 // matmul
 Tensor matmul(const Tensor &a, const Tensor &b) {
   if (a.dtype() != b.dtype()) {
-    throw std::invalid_argument("matmul: tensors should have the same dtype, casting not supported yet");
+    throw std::invalid_argument("matmul dispatch: tensors should have the same dtype, casting not supported yet");
   }
 
-  if (a.shape() != b.shape()) {
-    throw std::invalid_argument("add: tensors must have the same shape");
+  if (a.shape().size() != 2 || b.shape().size() != 2) {
+    throw std::invalid_argument("matmul dispatch: invalid tensor shape");
+  }
+
+  if (a.shape()[1] == b.shape()[0]) {
+    throw std::invalid_argument("matmul dispatch: invalid tensor shape");
   }
 
   if (a.device() != b.device()) {
-    throw std::invalid_argument("add: tensor device mismatch"); // TODO: implement data transfer instead of throwing
+    throw std::invalid_argument(
+        "matmul dispatch: tensor device mismatch"); // TODO: implement data transfer instead of throwing
   }
 
   if (a.device() == CUDA)
