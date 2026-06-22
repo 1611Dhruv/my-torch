@@ -246,6 +246,57 @@ TEST(ElementwiseTest, AddDeviceMismatchThrows) {
   EXPECT_THROW(torch::add(a, b), std::invalid_argument);
 }
 
+// --- CUDA strided test helpers ----------------------------------------------
+
+// Skips every test in this fixture when there's no GPU, so the suite stays green
+// on CPU-only machines instead of hard-failing inside cudaMemcpy.
+class ElementwiseCudaStrided : public ::testing::Test {
+protected:
+  void SetUp() override {
+    int count = 0;
+    if (cudaGetDeviceCount(&count) != cudaSuccess || count == 0)
+      GTEST_SKIP() << "no CUDA device available";
+  }
+};
+
+// Allocate a CUDA tensor and stage host values into it (row-major contiguous).
+static Tensor cuda_from(const Shape &shape, const std::vector<float> &vals) {
+  Tensor t(shape, DType::Float32, CUDA);
+  CUDA_CHECK(cudaMemcpy(t.data_ptr<float>(), vals.data(), vals.size() * sizeof(float), cudaMemcpyHostToDevice));
+  return t;
+}
+
+// Copy a contiguous CUDA tensor's values back to host.
+static std::vector<float> cuda_to_host(const Tensor &t) {
+  std::vector<float> out(t.numel());
+  CUDA_CHECK(cudaMemcpy(out.data(), t.data_ptr<float>(), t.numel() * sizeof(float), cudaMemcpyDeviceToHost));
+  return out;
+}
+
+// Oracle: run the same op on identical data -- CPU vs CUDA -- through a
+// transposed (non-contiguous) view, and assert they agree. The CPU strided path
+// is already tested above, so it's the trusted reference; we never hand-compute
+// expected values for the GPU strided kernel.
+using BinaryOp = Tensor (*)(const Tensor &, const Tensor &);
+static void expect_cuda_matches_cpu_transposed(BinaryOp cpu_op, BinaryOp gpu_op, const Shape &shape,
+                                               const std::vector<float> &va, const std::vector<float> &vb) {
+  Tensor ca(shape);
+  Tensor cb(shape);
+  fill(ca, va);
+  fill(cb, vb);
+  Tensor cpu_out = cpu_op(ca.transpose(-1, -2), cb.transpose(-1, -2));
+
+  Tensor ga = cuda_from(shape, va);
+  Tensor gb = cuda_from(shape, vb);
+  Tensor gpu_out = gpu_op(ga.transpose(-1, -2), gb.transpose(-1, -2));
+
+  ASSERT_EQ(cpu_out.shape(), gpu_out.shape());
+  std::vector<float> got = cuda_to_host(gpu_out);
+  const float *want = cpu_out.data_ptr<float>();
+  for (int64_t i = 0; i < cpu_out.numel(); ++i)
+    EXPECT_FLOAT_EQ(got[i], want[i]);
+}
+
 // --- CUDA: the GPU add kernel (requires a device at runtime) ----------------
 
 // n is intentionally NOT a multiple of the 256-thread block size, so the last
@@ -319,9 +370,32 @@ TEST(ElementwiseCudaTest, MultipliesElementwise) {
     EXPECT_FLOAT_EQ(hc[i], ha[i] * hb[i]);
 }
 
-// Non contiguous must throw
-TEST(ElementwiseCudaTest, ThrowsOnNonContiguous) {
-  Tensor a({4}, DType::Float32, CUDA);
-  Tensor b({4}, DType::Float32, CUDA);
-  EXPECT_THROW(torch::cuda::add(a, b.transpose(0, 1)), std::invalid_argument);
+// --- CUDA: non-contiguous (strided) is now SUPPORTED, validated vs CPU oracle ---
+
+TEST_F(ElementwiseCudaStrided, AddTransposedMatchesCpu) {
+  // NOTE: asymmetric data on purpose -- a+b must NOT be constant, or a linear
+  // (wrong) read and the correct strided read would both pass.
+  expect_cuda_matches_cpu_transposed(torch::cpu::add, torch::cuda::add, {2, 3}, {1, 2, 3, 4, 5, 6},
+                                     {10, 20, 30, 40, 50, 60});
+}
+
+TEST_F(ElementwiseCudaStrided, SubTransposedMatchesCpu) {
+  expect_cuda_matches_cpu_transposed(torch::cpu::sub, torch::cuda::sub, {2, 3}, {1, 2, 3, 4, 5, 6}, {6, 5, 4, 3, 2, 1});
+}
+
+TEST_F(ElementwiseCudaStrided, MultTransposedMatchesCpu) {
+  expect_cuda_matches_cpu_transposed(torch::cpu::mult, torch::cuda::mult, {2, 3}, {1, 2, 3, 4, 5, 6},
+                                     {6, 5, 4, 3, 2, 1});
+}
+
+// Higher-rank, non-power-of-two shape -> exercises the ndim unravel loop and a
+// ragged final block, still purely against the CPU oracle.
+TEST_F(ElementwiseCudaStrided, AddTransposedHighRankMatchesCpu) {
+  const int n = 3 * 5 * 7 * 9;
+  std::vector<float> va(n), vb(n);
+  for (int i = 0; i < n; ++i) {
+    va[i] = static_cast<float>(i);
+    vb[i] = static_cast<float>(2 * i + 1); // not n-i: that makes a+b constant and hides a linear-read bug
+  }
+  expect_cuda_matches_cpu_transposed(torch::cpu::add, torch::cuda::add, {3, 5, 7, 9}, va, vb);
 }
