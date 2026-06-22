@@ -65,14 +65,6 @@ Tensor mult(const Tensor &a, const Tensor &b) {
   return elementwise_binary_wrapper(a, b, [] __device__(auto x, auto y) { return x * y; });
 }
 
-Tensor mult(const Tensor &a, const Tensor &b) {
-  return elementwise_binary_wrapper(a, b, [] __device__(auto x, auto y) { return x * y; });
-}
-
-Tensor mult(const Tensor &a, const Tensor &b) {
-  return elementwise_binary_wrapper(a, b, [] __device__(auto x, auto y) { return x * y; });
-}
-
 template <typename Op> Tensor elementwise_unary_wrapper(const Tensor &a, Op op) {
   if (!a.is_contiguous()) {
     throw std::invalid_argument("cuda elementwise: tensors must be contiguous"); // Make contiguous() cuda aware
@@ -95,19 +87,19 @@ template <typename Op> Tensor elementwise_unary_wrapper(const Tensor &a, Op op) 
 }
 
 Tensor neg(const Tensor &a) {
-  return elementwise_unary_wrapper(a, [] __device__(auto x) { return -x });
+  return elementwise_unary_wrapper(a, [] __device__(auto x) { return -x; });
 }
 
 Tensor sin(const Tensor &a) {
-  return elementwise_unary_wrapper(a, [] __device__(auto x) { return std::sin(a) });
+  return elementwise_unary_wrapper(a, [] __device__(auto x) { return sinf(x); });
 }
 
 Tensor cos(const Tensor &a) {
-  return elementwise_unary_wrapper(a, [] __device__(auto x) { return std::cos(a) });
+  return elementwise_unary_wrapper(a, [] __device__(auto x) { return cosf(x); });
 }
 
 Tensor exp(const Tensor &a) {
-  return elementwise_unary_wrapper(a, [] __device__(auto x) { return std::exp(a) });
+  return elementwise_unary_wrapper(a, [] __device__(auto x) { return expf(x); });
 }
 
 } // namespace cuda
