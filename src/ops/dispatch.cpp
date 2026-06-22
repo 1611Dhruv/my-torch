@@ -54,7 +54,7 @@ Tensor matmul(const Tensor &a, const Tensor &b) {
     throw std::invalid_argument("matmul dispatch: invalid tensor shape");
   }
 
-  if (a.shape()[1] == b.shape()[0]) {
+  if (a.shape()[1] != b.shape()[0]) {
     throw std::invalid_argument("matmul dispatch: invalid tensor shape");
   }
 

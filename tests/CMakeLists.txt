@@ -27,3 +27,7 @@ gtest_discover_tests(elementwise_test)
 add_executable(autograd_test autograd_test.cpp)
 target_link_libraries(autograd_test PRIVATE mytorch GTest::gtest_main)
 gtest_discover_tests(autograd_test)
+
+add_executable(matmul_test matmul_test.cpp)
+target_link_libraries(matmul_test PRIVATE mytorch GTest::gtest_main)
+gtest_discover_tests(matmul_test)
