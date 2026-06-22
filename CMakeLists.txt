@@ -9,6 +9,10 @@ set(CMAKE_CUDA_STANDARD 20)
 # sm_75 here, which forces a PTX-JIT fallback that the driver (CUDA 13.2) is too old
 # to handle vs nvcc 13.3 ("unsupported toolchain"). Explicit sm_120 emits real SASS.
 set(CMAKE_CUDA_ARCHITECTURES 120)
+# Emit -I include flags inline in compile_commands.json instead of hiding them in
+# an nvcc response file (--options-file), which clangd can't read -> it loses the
+# project include path and red-lines every .cu. Keeps the editor happy.
+set(CMAKE_CUDA_USE_RESPONSE_FILE_FOR_INCLUDES OFF)
 
 # Core library: everything in src/ links into one target the tests + examples use.
 # Empty .cpp files are fine -- add real ones here as you implement them.
