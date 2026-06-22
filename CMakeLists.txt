@@ -21,6 +21,7 @@ add_library(mytorch
   src/tensor.cpp
   src/ops/elementwise.cpp
   src/ops/elementwise.cu
+  src/ops/matmul.cu
   src/ops/matmul.cpp
   src/ops/dispatch.cpp
   src/autograd/functional.cpp
