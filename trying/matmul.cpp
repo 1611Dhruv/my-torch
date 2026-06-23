@@ -51,11 +51,11 @@ void bench(int n, int k, int m, bool print = true) {
   auto start = std::chrono::steady_clock::now();
   matmul_gpu(n, k, m);
   auto end = std::chrono::steady_clock::now();
-  auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+  auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
 
   matmul_get(OUT, n, m);
 
-  long double FLOPS = 2.0 * n * k * m / duration.count() * 1000;
+  long double FLOPS = 2.0 * n * k * m / duration.count() * 1e6;
   std::string unit = "FLOP/s";
   if (FLOPS >= 1e12) {
     FLOPS /= 1e12;
