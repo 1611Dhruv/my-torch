@@ -7,41 +7,77 @@
 namespace torch {
 namespace cuda {
 
-template <typename scalar_t, const int TILE_WIDTH>
+template <typename scalar_t, const int TILE_WIDTH, const int REG_WIDTH>
 __global__ void matmul_kernel(const scalar_t *a, const scalar_t *b, scalar_t *out, int64_t n1, int64_t n2, int64_t n3) {
   int64_t bx = blockIdx.x, by = blockIdx.y;
   int64_t tx = threadIdx.x, ty = threadIdx.y;
 
-  int64_t i = TILE_WIDTH * by + ty;
-  int64_t j = TILE_WIDTH * bx + tx;
+  int64_t ri = TILE_WIDTH / REG_WIDTH * by + ty;
+  int64_t rj = TILE_WIDTH / REG_WIDTH * bx + tx;
+
+  int64_t r0 = ri * REG_WIDTH;
+  int64_t c0 = rj * REG_WIDTH;
 
   __shared__ scalar_t sh_A[TILE_WIDTH][TILE_WIDTH];
   __shared__ scalar_t sh_B[TILE_WIDTH][TILE_WIDTH];
 
-  scalar_t partial_dot = 0;
+  scalar_t accumulator[REG_WIDTH][REG_WIDTH];
+#pragma unroll
+  for (int i = 0; i < REG_WIDTH; i++) {
+#pragma unroll
+    for (int j = 0; j < REG_WIDTH; j++) {
+      accumulator[i][j] = static_cast<scalar_t>(0);
+    }
+  }
+
+  int tid = ty * blockDim.x + tx;
+  int nthreads = blockDim.x * blockDim.y;
+
   int64_t tiles = (n2 + TILE_WIDTH - 1) / TILE_WIDTH;
   for (int64_t k = 0; k < tiles; k++) {
-    if ((i < n1) && (k * TILE_WIDTH + tx < n2)) {
-      sh_A[ty][tx] = a[i * n2 + k * TILE_WIDTH + tx];
-    } else {
-      sh_A[ty][tx] = 0;
-    }
+    for (int idx = tid; idx < TILE_WIDTH * TILE_WIDTH; idx += nthreads) {
+      int r = idx / TILE_WIDTH;
+      int c = idx % TILE_WIDTH;
 
-    if ((j < n3) && (k * TILE_WIDTH + ty < n2)) {
-      sh_B[ty][tx] = b[(k * TILE_WIDTH + ty) * n3 + j];
-    } else {
-      sh_B[ty][tx] = 0;
+      int a_row = by * TILE_WIDTH + r, a_col = k * TILE_WIDTH + c;
+      if ((a_row < n1) && (a_col < n2)) {
+        sh_A[r][c] = a[a_row * n2 + a_col];
+      } else {
+        sh_A[r][c] = 0;
+      }
+
+      int b_row = k * TILE_WIDTH + r, b_col = bx * TILE_WIDTH + c;
+      if ((b_row < n2) && (b_col < n3)) {
+        sh_B[r][c] = b[b_row * n3 + b_col];
+      } else {
+        sh_B[r][c] = 0;
+      }
     }
     __syncthreads();
 
     for (int l = 0; l < TILE_WIDTH; l++) {
-      partial_dot += sh_A[ty][l] * sh_B[l][tx];
+      // partial_dot += sh_A[ty][l] * sh_B[l][tx];
+      scalar_t a_reg[REG_WIDTH], b_reg[REG_WIDTH];
+      for (int i = 0; i < REG_WIDTH; i++)
+        a_reg[i] = sh_A[i + ty * REG_WIDTH][l];
+      for (int j = 0; j < REG_WIDTH; j++)
+        b_reg[j] = sh_B[l][j + tx * REG_WIDTH];
+
+      for (int i = 0; i < REG_WIDTH; i++) {
+        for (int j = 0; j < REG_WIDTH; j++) {
+          accumulator[i][j] += a_reg[i] * b_reg[j];
+        }
+      }
     }
     __syncthreads();
   }
 
-  if ((i < n1) && (j < n3))
-    out[i * n3 + j] = partial_dot;
+  for (int i = 0; i < REG_WIDTH; i++) {
+    for (int j = 0; j < REG_WIDTH; j++) {
+      if ((r0 + i < n1) && (c0 + j < n3))
+        out[(r0 + i) * n3 + (c0 + j)] = accumulator[i][j];
+    }
+  }
 }
 
 Tensor matmul(const Tensor &a, const Tensor &b) {
@@ -59,12 +95,14 @@ Tensor matmul(const Tensor &a, const Tensor &b) {
 
   Tensor out({n1, n3}, a.dtype(), a.device());
 
-  constexpr int TILE_WIDTH = 32;
+  constexpr int TILE_WIDTH = 64;
+  constexpr int REG_WIDTH = 4;
+
   dim3 grid((n3 + TILE_WIDTH - 1) / TILE_WIDTH, (n1 + TILE_WIDTH - 1) / TILE_WIDTH);
-  dim3 block(TILE_WIDTH, TILE_WIDTH);
+  dim3 block(TILE_WIDTH / REG_WIDTH, TILE_WIDTH / REG_WIDTH);
 
   DISPATCH_OP(a.dtype(), [&] {
-    matmul_kernel<scalar_t, TILE_WIDTH>
+    matmul_kernel<scalar_t, TILE_WIDTH, REG_WIDTH>
         <<<grid, block>>>(a.data_ptr<scalar_t>(), b.data_ptr<scalar_t>(), out.data_ptr<scalar_t>(), n1, n2, n3);
   });
 
