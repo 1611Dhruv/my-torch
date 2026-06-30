@@ -49,11 +49,16 @@ __global__ void kernel_shared_reg_tiled(float *A, float *B, float *OUT, int n, i
       } else {
         As[r][c] = A[(r + blockRow) * k + p * BK + c];
       }
+    }
 
-      if ((p * BK + c) >= k || (r + blockCol) >= m) {
-        Bs[c][r] = 0;
+    for (int i = tid; i < BLOCK_SZ * BK; i += TILE * TILE) {
+      int r = i / BLOCK_SZ;
+      int c = i % BLOCK_SZ;
+
+      if ((p * BK + r) >= k || (c + blockCol) >= m) {
+        Bs[r][c] = 0;
       } else {
-        Bs[c][r] = B[(p * BK + c) * m + r + blockCol];
+        Bs[r][c] = B[(p * BK + r) * m + c + blockCol];
       }
     }
     __syncthreads();
