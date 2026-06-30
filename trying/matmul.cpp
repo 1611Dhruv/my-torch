@@ -115,15 +115,16 @@ void bench(int n, int k, int m, bool print = true, bool verify = false) {
 
 int main() {
   // Just a dummy benchmark
-  bench(43, 93, 103, false, true); // verify=true -> random inputs + dump for oracle.py
+  // bench(43, 93, 103, false, true); // verify=true -> random inputs + dump for oracle.py
 
-  bench(1024, 1024, 1024);
+  bench(16384, 1024, 16384);
+  // bench(1024, 1024, 1024);
+  /* Bigger Faster Better Future
   bench(2048, 1024, 2048);
   bench(1024, 16384, 2048); // Maybe? Just  GPU
-  bench(16384, 1024, 16384);
   bench(16384, 16384, 16384);
   bench(16384, 32768, 16384); // Oh? Reg tiling
   bench(32768, 32768, 32768); // Oh? Reg tiling
-  // CPU Cant compute fast enough
+  */
   return 0;
 }
