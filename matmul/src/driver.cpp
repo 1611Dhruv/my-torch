@@ -138,17 +138,15 @@ static void sweep_point(int n, int k, int m, int iters, bool dump_oracle) {
 }
 
 int main() {
-  // Section 1: full ladder at a representative size (small enough that naive finishes).
+  // Full ladder at three sizes -> the gaps widen as L2 stops hiding memory cost.
   ladder(4096, 4096, 4096, 3);
+  ladder(8192, 8192, 8192, 3);
+  ladder(16384, 16384, 16384, 2);
 
-  // Section 2: final kernel across sizes.
-  printf("\n== final kernel vs cuBLAS, by size ==\n");
+  // Small case dumped for the definitive float64 PyTorch oracle (1024^3 is
+  // cheap enough to verify in double precision on the CPU).
+  printf("\n== oracle dump (final kernel, 1024^3) ==\n");
   printf("  size     yours    cuBLAS   %%ceil   correctness(vs cuBLAS)\n");
-  printf("  ----   -------   -------   ------   ----------------------\n");
-  int sizes[] = {512, 1024, 2048, 4096, 8192, 16384};
-  for (int s : sizes) {
-    int iters = s <= 2048 ? 20 : (s <= 8192 ? 5 : 2);
-    sweep_point(s, s, s, iters, /*dump_oracle=*/s == 1024);
-  }
+  sweep_point(1024, 1024, 1024, 20, /*dump_oracle=*/true);
   return 0;
 }

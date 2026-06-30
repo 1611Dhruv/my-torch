@@ -1,162 +1,118 @@
-# A matmul story: from 8 to ~63 TFLOP/s (and ~80% of cuBLAS)
+# Writing a matmul that reaches ~80% of cuBLAS
 
-This is the log of taking a single-precision matrix multiply on an **RTX 5090
-(Blackwell, ~105 TFLOP/s FP32 peak)** from a naive kernel to a hand-written
-tiled SGEMM that lands within ~80% of cuBLAS — and, just as importantly, *how*
-each step was chosen: by profiling, finding the one bottleneck, and attacking it.
+This is a writeup of optimizing a single-precision GPU matrix multiply from a
+naive kernel to one that sustains roughly 80% of cuBLAS on an RTX 5090. The
+method was the same at every step: profile with Nsight Compute, find the dominant
+bottleneck, address it, verify correctness against a reference, and repeat.
 
-The rule the whole way: **let the profiler pick the next move.** Every jump
-below came from reading an Nsight Compute report, finding the tallest
-Speed-of-Light bar, and fixing exactly that.
+The 5090 has a theoretical FP32 peak near 105 TFLOP/s. cuBLAS sustains about
+75–80 on large matmuls. The goal was never to beat it, only to close the gap
+enough to understand where that performance comes from.
 
----
+## Results
 
-## The ladder
-
-Every kernel, measured at the **same `4096³`** size against cuBLAS on this card
-(`make run`, Section 1). All seven agree with cuBLAS to ~`5e-6` — the ladder is a
-performance story, not a correctness one; correctness held the whole way.
-
-| Stage | What changed | Bottleneck it attacked | TFLOP/s | % cuBLAS |
-|---|---|---|---|---|
-| 0. Naive | one thread per output, read straight from global | global bandwidth | 7.5 | 10% |
-| 1. Shared-memory tiling | block-cooperative `TILE×TILE` tiles in smem | global bandwidth → smem | 10.0 | 14% |
-| 2. 2D register tiling | each thread owns an `8×8` register tile (outer product) | smem traffic / MIO | 34.1 | 48% |
-| 3. `float4` vectorization | 128-bit loads/stores, coalesced + fewer instrs | L1 instruction pressure | 35.1 | 49% |
-| 4. Warp tiling | lane layout → broadcast smem reads | L1 bank conflicts | 39.0 | 54% |
-| 4b. Transpose `As` | contiguous `float4` A read (kills 8-way conflict) | the A-side bank conflict | 41.5 | 58% |
-| 5. Double buffering | prefetch next k-slab while computing | load↔compute serialization | 58.2 | **81%** |
-| — cuBLAS | the reference ceiling | — | 71.7 | 100% |
-
-Two honest notes from the measured ladder: `float4` and warp tiling look modest
-*at this size* (L2 hides some of what they fix), but pay off more at larger sizes
-and under thermal load; and **double buffering was the biggest single jump after
-register tiling** (+40%) — hiding load latency mattered a lot.
-
----
-
-## 0 → 1: the memory hierarchy shows up
-
-The naive kernel gives each thread one output and reads its whole row of `A` and
-column of `B` from global memory. Every value of `A[i][:]` is re-read by every
-thread in row `i` — enormous redundant traffic. It's bandwidth-bound and slow.
-
-**Shared-memory tiling** fixes the *cross-thread* reuse: a block cooperatively
-loads a `TILE×TILE` patch of `A` and `B` into shared memory once, and the
-`TILE` threads that need each value read it from fast on-chip smem instead of
-global. ~`TILE×` less global traffic. First big jump.
-
-**Lesson:** shared memory is the only on-chip level the whole block can see, so
-it's where *cross-thread* reuse has to live. Registers are private; they can't
-do this job.
-
-## 1 → 2: register tiling and the outer product
-
-Shared tiling still reads from smem a lot. **2D register tiling** gives each
-thread an `8×8` block of outputs and an `acc[8][8]` accumulator in registers.
-The inner loop becomes an **outer product**: per `k`-slice, load an 8-vector
-fragment of `A` and an 8-vector of `B` from smem *once* into registers, then do
-64 multiply-adds entirely from registers.
+Every kernel, measured at the same sizes against cuBLAS on this card:
 
 ```
-16 smem reads  →  64 MACs   (per kk)   ← 8× arithmetic-intensity win
+                       TFLOP/s @ size
+kernel                 4096   8192  16384
+0  naive                7.5    6.5    6.5
+1  shared tiling       10.0    9.1    9.0
+2  register tiling     34.2   38.0   37.6
+3  + float4            35.2   40.5   40.5
+4  + warp tiling       39.0   44.2   44.8
+4b + transpose As      40.7   44.0   46.2
+5  + double buffering  58.2   62.4   55.0
+   cuBLAS              71.8   78.3   74.2
 ```
 
-**Lesson:** the two tiling levels capture two different axes of reuse —
-shared = cross-thread, registers = within-thread. You need both.
+The hand-written kernel peaks near 62 TFLOP/s (~80% of cuBLAS), and every stage
+matches cuBLAS numerically to ~1e-6. The 16384 column reflects thermal throttling
+after several back-to-back sweeps — cuBLAS drops with it, so the ratio is stable.
 
-## 2 → 3: `float4`
+## Naive and shared memory
 
-The profiler now said **L1-bound**, with uncoalesced global stores (the
-writeback used only 4 of every 32 bytes per sector — `Est. Speedup: 67%`) and
-shared bank conflicts (`3.2-way`, `Est. Speedup: 38%`). Both are fixed by
-**128-bit memory instructions**: `float4` loads/stores move 4 contiguous floats
-per instruction → 4× fewer instructions, full sectors, broadcast-friendly smem
-reads.
+The naive kernel assigns one output element per thread, each reading a full row
+of A and column of B from global memory. At ~7 TFLOP/s it is bandwidth-bound:
+every thread computing a result in row `i` re-reads that entire row from the
+slowest memory on the device.
 
-The trap: `float4` needs **16-byte-aligned** addresses, which means the row
-stride (`k` for `A`, `m` for `B`) must be a multiple of 4 — not just the column
-offset. Misalignment hits *most rows* when the stride isn't a multiple of 4, not
-just the tail. So: test on multiple-of-4 (and multiple-of-128) sizes.
+Shared-memory tiling is the standard fix — load a tile once per block and serve
+the threads that need it from on-chip memory. The gain here was smaller than I
+expected (~10 TFLOP/s), because the L2 cache was already absorbing much of the
+naive version's redundant traffic. The benefit grows at larger problem sizes,
+where the working set stops fitting in L2.
 
-**Lesson:** correctness tests can't catch a coalescing bug — it's *correct*,
-just slow. Only the profiler (sectors/request, bank conflicts) shows it.
+## Register tiling
 
-## 3 → 4: warp tiling, or "seat the threads so they share cards"
+This was the first large jump. Instead of one output per thread, each thread owns
+an 8×8 block of the output with an `acc[8][8]` accumulator held in registers. The
+inner loop becomes an outer product: per slice of k, load an 8-element strip of A
+and an 8-element strip of B from shared memory once, into registers, and issue 64
+multiply-adds from those — sixteen shared-memory reads for sixty-four MACs.
 
-Still L1-bound (`~81%`), now from smem-read *volume*: each value was loaded ~16×
-because every thread fetched its fragment independently.
+That took it to ~34 TFLOP/s. The mental model that made the rest of the project
+coherent: shared memory captures reuse *between* threads, registers capture reuse
+*within* a thread, and every optimization from here is some version of moving a
+value further up the memory hierarchy and extracting more work from it before it
+falls back down.
 
-**Warp tiling** reshapes each warp's output footprint from a wide `2×16` strip
-into a square-ish block, and lays out its 32 lanes as a grid so that:
+## float4
 
-- lanes in the same **lane-row** want the same `A` values → one **broadcast**,
-- lanes in the same **lane-column** want the same `B` values → one broadcast.
+The profiler now reported the kernel as L1-bound, with two specific issues:
+uncoalesced output stores (using 4 of every 32 bytes per transaction) and
+shared-memory bank conflicts. Both are addressed by moving 128 bits per
+instruction instead of 32 — `float4` loads and stores.
 
-A broadcast serves many lanes from one smem read (and isn't a bank conflict), so
-the redundant smem traffic collapses and L1 drops.
+The subtlety that cost some time: `float4` requires 16-byte-aligned addresses. I
+initially treated that as an edge-of-the-matrix concern, but if the row stride
+isn't a multiple of 4, every row after the first begins at a misaligned address —
+the misalignment is spread through the interior of the matrix, not the boundary.
+Restricting test sizes to clean multiples of 4 resolved it.
 
-This is the stage that bit back. The first attempt was **slower** — two
-self-inflicted wounds:
+## Warp tiling
 
-1. **Halved the thread count** (128 instead of 256) → each thread computed 128
-   outputs → `acc[8][16]` = ~150 registers → occupancy crashed to ~19%.
-2. **Left the `A` read scalar and strided** → an **8-way** bank conflict (worse
-   than before).
+A warp is 32 threads executing the same instruction in lockstep. When several of
+them request the same shared-memory address in one instruction, the hardware
+broadcasts it to all of them at once, effectively for free. Warp tiling assigns
+each thread its outputs deliberately, so that an entire row of threads needs the
+same A values and an entire column needs the same B values. Scattered reads
+collapse into broadcasts, and the bank conflicts disappear with them.
 
-Fixes: back to 256 threads / 64 outputs per thread, and **transpose `As` in
-shared** so the `A` read is contiguous `float4` like `B`. That recovered and
-then beat the previous best.
+My first warp-tiled kernel was slower than the version before it, for two
+reasons. I had reduced the thread count, which doubled the work and register
+footprint per thread and collapsed occupancy; and I had left the A-side reads
+scalar and strided, producing an 8-way bank conflict — worse than where I
+started. Restoring the thread count and storing A transposed in shared memory (so
+its reads are contiguous, like B's) fixed both. Applying the optimization and
+making it faster turned out to be two separate problems.
 
-**Lesson:** warp tiling is the most parameter-sensitive step on the ladder. The
-*idea* (broadcast layout) is easy to get right and the *tuning* (threads,
-registers, both fragment reads conflict-free) is easy to get wrong.
+## Double buffering
 
-## 4 → 5: double buffering
+The two `__syncthreads()` in the main loop serialize memory and compute: load a
+tile, compute on it, load the next, compute. The memory system is idle during the
+math and vice versa. Double buffering keeps two shared-memory buffers and begins
+loading the next k-slab while computing on the current one, hiding load latency
+behind the math. This was the largest single improvement after register
+tiling — roughly 46 to 62 TFLOP/s — and also the easiest place to introduce a
+kernel that runs correctly on most inputs but returns wrong results at slab
+boundaries.
 
-The two `__syncthreads()` in the loop serialize memory and compute: load, then
-compute, then load. The global latency of the next slab is exposed, not hidden.
+## Two things worth recording
 
-**Double buffering** uses two smem buffers and prefetches slab `p+1` while
-computing on slab `p`, hiding load latency behind compute. Final stage, and the
-most bug-prone — easy to write something fast that's subtly wrong at slab
-boundaries, which is exactly why the oracle matters.
+For a while the benchmark reported ~90 TFLOP/s and I believed it. On reading the
+driver again I found it was timing `cublasSgemm`, which I had swapped in earlier
+to measure the ceiling and never reverted. The actual kernel was ~62. The lesson
+is less about the mistake than about how I caught it: only by building a real
+side-by-side comparison instead of trusting a single impressive number.
 
----
+The correctness check mattered more than its line count suggests. Coalescing and
+double-buffering bugs do not crash — they produce fast, wrong answers, which is
+the worst failure mode to have. A float64 reference from PyTorch and a direct diff
+against cuBLAS caught boundary bugs the benchmark alone would have missed. On a
+future kernel I would write the oracle before the optimizations.
 
-## Final numbers (`results/`, clean sweep)
-
-```
-  size     yours    cuBLAS   %ceil   correctness(vs cuBLAS)
-   512       5.4      14.9    36.3%   maxrel=1.5e-06   PASS
-  1024      22.9      45.4    50.5%   maxrel=2.2e-06   PASS
-  2048      52.5      68.4    76.8%   maxrel=3.1e-06   PASS
-  4096      58.5      71.9    81.4%   maxrel=5.0e-06   PASS
-  8192      62.9      77.7    81.0%   maxrel=7.4e-06   PASS
- 16384      56.2      74.3    75.7%   maxrel=0.0e+00   PASS
-```
-
-- **Correctness:** agrees with cuBLAS to ~`1e-6` (float32) and passes the float64
-  PyTorch oracle (`max abs err 5.9e-4`). It's not just fast — it's right.
-- **Peak ~63 TFLOP/s** (8192), **~80% of cuBLAS** in the sweet spot.
-- Small sizes (512, 1024) underutilize the 170 SMs — too few blocks to fill the
-  GPU. Universal; cuBLAS dips there too.
-- These are **steady-state, thermally throttled** numbers (a back-to-back sweep
-  heats the card and clocks drop). Cold single-shot runs were higher (~72
-  ours / ~90 cuBLAS) — same ~80% ratio either way, which is the robust metric.
-
----
-
-## What actually carried the project
-
-- **Profile, don't guess.** Every step came from the tallest Speed-of-Light bar.
-  Twice the profiler *redirected* the plan (float4 before warp tiling; the
-  writeback before the bank conflicts).
-- **A correctness oracle is non-negotiable.** Coalescing and double-buffering
-  bugs don't show up as crashes — they show up as fast wrong answers. The
-  PyTorch float64 oracle (and the direct cuBLAS comparison) caught what the
-  benchmark couldn't.
-- **The memory hierarchy is the whole game.** global → shared → registers, each
-  capturing a different axis of reuse. Every optimization was really about
-  moving a byte one rung up the hierarchy and reusing it more before it fell
-  back down.
+The project reduces to one loop: profile, fix the dominant bottleneck, confirm
+correctness, repeat. Twice the profiler directed me somewhere I would not have
+chosen — fixing the output stores before the bank conflicts, which felt backwards
+and was not. That loop is the transferable part; the kernels are what it produced.
