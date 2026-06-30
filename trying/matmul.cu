@@ -5,6 +5,90 @@ float *B_c;
 float *OUT_c;
 
 #define TILE 16
+#define REG 8
+#define BLOCK_SZ (TILE * REG)
+#define BK 8
+
+__global__ void kernel_shared_reg_tiled(float *A, float *B, float *OUT, int n, int k, int m) {
+  // 128 by 8
+  __shared__ float As[BLOCK_SZ][BK];
+  // 8 by 128
+  __shared__ float Bs[BK][BLOCK_SZ];
+
+  // Now each thread is responsible for 8 times its input
+  float a_reg[REG] = {};
+  float b_reg[REG] = {};
+
+  float acc[REG][REG] = {};
+
+  // Block (x,y) is responsible for computing REG * TILE
+  // y first cuz memory is layed out column wise and cols will share
+
+  int blockRow = blockIdx.y * (TILE * REG);
+  int blockCol = blockIdx.x * (TILE * REG);
+
+  int tid = threadIdx.x + blockDim.x * threadIdx.y;
+
+  // Perform tile
+  // during phase "p" what should be loaded in the shared memory?
+  // We have a 256 KB cache so what is the max we can store
+  //
+  for (int p = 0; p <= k / BK; p++) {
+
+    // Your goal is to fill only one row col skip rest
+    // Remaining TILE * TILE will fill rest :P
+    // 256 threads, need to load up 128 by 8
+    for (int i = tid; i < BLOCK_SZ * BK; i += TILE * TILE) {
+      int r = i / BK;
+      int c = i % BK;
+      // in phase p
+      // which row col should be gotten
+      // We will want row r and column "c"+ p
+      if ((r + blockRow) >= n || (p * BK + c) >= k) {
+        As[r][c] = 0;
+      } else {
+        As[r][c] = A[(r + blockRow) * k + p * BK + c];
+      }
+
+      if ((p * BK + c) >= k || (r + blockCol) >= m) {
+        Bs[c][r] = 0;
+      } else {
+        Bs[c][r] = B[(p * BK + c) * m + r + blockCol];
+      }
+    }
+    __syncthreads();
+
+    for (int kk = 0; kk < BK; kk++) {
+
+      for (int i = 0; i < REG; i++) {
+        a_reg[i] = As[threadIdx.y * REG + i][kk];
+      }
+
+      for (int j = 0; j < REG; j++) {
+        b_reg[j] = Bs[kk][threadIdx.x * REG + j];
+      }
+
+      // Store in a_reg
+      for (int i = 0; i < REG; i++) {
+        for (int j = 0; j < REG; j++) {
+          acc[i][j] += a_reg[i] * b_reg[j];
+        }
+      }
+    }
+    // Wait for accumulation to happen
+    __syncthreads();
+  }
+
+  // Write out later
+  for (int i = 0; i < REG; i++) {
+    for (int j = 0; j < REG; j++) {
+      int r = blockRow + threadIdx.y * REG + i;
+      int c = blockCol + threadIdx.x * REG + j;
+      if (r < n && c < m)
+        OUT[r * m + c] = acc[i][j];
+    }
+  }
+}
 
 __global__ void kernel_shared_memory_tiled(float *A, float *B, float *OUT, int n, int k, int m) {
   __shared__ float As[TILE][TILE];
@@ -77,8 +161,8 @@ void matmul_alloc(float *A, float *B, int n, int k, int m) {
 
 void matmul_gpu(int n, int k, int m) {
   dim3 block(TILE, TILE);
-  dim3 grid((m + TILE - 1) / TILE, (n + TILE - 1) / TILE);
-  kernel_shared_memory_tiled<<<grid, block>>>(A_c, B_c, OUT_c, n, k, m);
+  dim3 grid((m + BLOCK_SZ - 1) / BLOCK_SZ, (n + BLOCK_SZ - 1) / BLOCK_SZ);
+  kernel_shared_reg_tiled<<<grid, block>>>(A_c, B_c, OUT_c, n, k, m);
   cudaDeviceSynchronize();
 }
 
