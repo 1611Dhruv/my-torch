@@ -68,7 +68,7 @@ void bench(int n, int k, int m, bool print = true, bool verify = false) {
   matmul_alloc(A, B, n, k, m);
 
   auto start = std::chrono::steady_clock::now();
-  matmul_gpu(n, k, m);
+  matmul_gpu_cublas(n, k, m);
   auto end = std::chrono::steady_clock::now();
   auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
 
@@ -116,7 +116,7 @@ void bench(int n, int k, int m, bool print = true, bool verify = false) {
 int main() {
   // Just a dummy benchmark
   // bench(43, 93, 103, false, true); // verify=true -> random inputs + dump for oracle.py
-  // bench(1024, 1024, 1024, false, true);
+  bench(1024, 1024, 1024, false, true);
 
   // Actual ones
   bench(16384, 1024, 16384);

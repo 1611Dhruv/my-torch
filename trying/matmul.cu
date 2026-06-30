@@ -19,6 +19,155 @@ float *OUT_c;
 #define WSUBM (WM / WMITER)                          // = 16
 #define WSUBN (WN / WNITER)                          // = 64
 
+#define NUM_A_F4 ((BS * BK / 4) / NUM_THREADS) // float4 staged per thread for A = 1
+#define NUM_B_F4 ((BK * BS / 4) / NUM_THREADS) // for B = 1
+
+__device__ __forceinline__ void prefetch_slab(float *A, float *B, int n, int k, int m, int blockRow, int blockCol,
+                                              int p, float4 *rA, float4 *rB) {
+  float4 zeros{0, 0, 0, 0};
+  for (int idx = 0; idx < NUM_A_F4; idx++) {
+    int i = threadIdx.x + idx * NUM_THREADS;
+    int s_row = i / (BK / 4);
+    int s_col = (i % (BK / 4)) * 4;
+    int g_row = blockRow + s_row;
+    int g_col = p * BK + s_col;
+    float4 t;
+    if (g_row >= n || g_col >= k)
+      t = zeros;
+    else if (k - g_col >= 4)
+      t = *reinterpret_cast<float4 *>(&A[g_row * k + g_col]);
+    else {
+      t.x = (g_col + 0 < k) ? A[g_row * k + g_col + 0] : 0.f;
+      t.y = (g_col + 1 < k) ? A[g_row * k + g_col + 1] : 0.f;
+      t.z = (g_col + 2 < k) ? A[g_row * k + g_col + 2] : 0.f;
+      t.w = (g_col + 3 < k) ? A[g_row * k + g_col + 3] : 0.f;
+    }
+    rA[idx] = t;
+  }
+  for (int idx = 0; idx < NUM_B_F4; idx++) {
+    int i = threadIdx.x + idx * NUM_THREADS;
+    int s_row = i / (BS / 4);
+    int s_col = (i % (BS / 4)) * 4;
+    int g_row = p * BK + s_row;
+    int g_col = blockCol + s_col;
+    float4 t;
+    if (g_row >= k || g_col >= m)
+      t = zeros;
+    else if (m - g_col >= 4)
+      t = *reinterpret_cast<float4 *>(&B[g_row * m + g_col]);
+    else {
+      t.x = (g_col + 0 < m) ? B[g_row * m + g_col + 0] : 0.f;
+      t.y = (g_col + 1 < m) ? B[g_row * m + g_col + 1] : 0.f;
+      t.z = (g_col + 2 < m) ? B[g_row * m + g_col + 2] : 0.f;
+      t.w = (g_col + 3 < m) ? B[g_row * m + g_col + 3] : 0.f;
+    }
+    rB[idx] = t;
+  }
+}
+
+__device__ __forceinline__ void commit_slab(float4 *rA, float4 *rB, float As[BK][BS], float Bs[BK][BS]) {
+  for (int idx = 0; idx < NUM_A_F4; idx++) {
+    int i = threadIdx.x + idx * NUM_THREADS;
+    int s_row = i / (BK / 4);
+    int s_col = (i % (BK / 4)) * 4;
+    As[s_col + 0][s_row] = rA[idx].x; // transpose into smem, same as before
+    As[s_col + 1][s_row] = rA[idx].y;
+    As[s_col + 2][s_row] = rA[idx].z;
+    As[s_col + 3][s_row] = rA[idx].w;
+  }
+  for (int idx = 0; idx < NUM_B_F4; idx++) {
+    int i = threadIdx.x + idx * NUM_THREADS;
+    int s_row = i / (BS / 4);
+    int s_col = (i % (BS / 4)) * 4;
+    float4 *Bs4 = reinterpret_cast<float4 *>(&Bs[s_row][s_col]);
+    *Bs4 = rB[idx];
+  }
+}
+
+__global__ void kernel_warptiled_doublebuf(float *A, float *B, float *OUT, int n, int k, int m) {
+  __shared__ float As[2][BK][BS]; // two buffers, ping-pong
+  __shared__ float Bs[2][BK][BS];
+
+  int blockRow = blockIdx.y * BS;
+  int blockCol = blockIdx.x * BS;
+
+  int warpIdx = threadIdx.x / 32;
+  int warpRow = warpIdx / (BS / WN);
+  int warpCol = warpIdx % (BS / WN);
+  int laneIdx = threadIdx.x % 32;
+  int threadRowInWarp = laneIdx / (WSUBN / TN);
+  int threadColInWarp = laneIdx % (WSUBN / TN);
+
+  __align__(16) float a[WMITER * TM] = {};
+  __align__(16) float b[WNITER * TN] = {};
+  __align__(16) float acc[WMITER * TM][WNITER * TN] = {};
+
+  float4 rA[NUM_A_F4]; // register stage for the next slab
+  float4 rB[NUM_B_F4];
+
+  int numPhases = (k + BK - 1) / BK;
+
+  // prologue: load slab 0 and commit it
+  prefetch_slab(A, B, n, k, m, blockRow, blockCol, 0, rA, rB);
+  commit_slab(rA, rB, As[0], Bs[0]);
+  __syncthreads();
+
+  for (int p = 0; p < numPhases; p++) {
+    int cur = p & 1;
+    int nxt = (p + 1) & 1;
+
+    // issue next slab's global loads NOW (latency hides behind the kk loop)
+    if (p + 1 < numPhases)
+      prefetch_slab(A, B, n, k, m, blockRow, blockCol, p + 1, rA, rB);
+
+    // compute on the current buffer
+    for (int kk = 0; kk < BK; kk++) {
+      for (int wm = 0; wm < WMITER; wm++)
+        for (int i = 0; i < TM; i += 4) {
+          int row = warpRow * WM + wm * WSUBM + threadRowInWarp * TM + i;
+          float4 *a4 = reinterpret_cast<float4 *>(&a[wm * TM + i]);
+          float4 *As4 = reinterpret_cast<float4 *>(&As[cur][kk][row]);
+          *a4 = *As4;
+        }
+      for (int wn = 0; wn < WNITER; wn++)
+        for (int j = 0; j < TN; j += 4) {
+          int col = warpCol * WN + wn * WSUBN + threadColInWarp * TN + j;
+          float4 *b4 = reinterpret_cast<float4 *>(&b[wn * TN + j]);
+          float4 *Bs4 = reinterpret_cast<float4 *>(&Bs[cur][kk][col]);
+          *b4 = *Bs4;
+        }
+      for (int wm = 0; wm < WMITER; wm++)
+        for (int wn = 0; wn < WNITER; wn++)
+          for (int i = 0; i < TM; i++)
+            for (int j = 0; j < TN; j++)
+              acc[wm * TM + i][wn * TN + j] += a[wm * TM + i] * b[wn * TN + j];
+    }
+
+    // commit the prefetched registers into the OTHER buffer
+    if (p + 1 < numPhases)
+      commit_slab(rA, rB, As[nxt], Bs[nxt]);
+
+    __syncthreads();
+  }
+
+  // writeback (unchanged)
+  for (int wm = 0; wm < WMITER; wm++)
+    for (int wn = 0; wn < WNITER; wn++)
+      for (int i = 0; i < TM; i++)
+        for (int j = 0; j < TN; j += 4) {
+          int outRow = blockRow + warpRow * WM + wm * WSUBM + threadRowInWarp * TM + i;
+          int outCol = blockCol + warpCol * WN + wn * WSUBN + threadColInWarp * TN + j;
+          if (outRow < n && outCol + 3 < m) {
+            float4 *acc4 = reinterpret_cast<float4 *>(&acc[wm * TM + i][wn * TN + j]);
+            float4 *out4 = reinterpret_cast<float4 *>(&OUT[outRow * m + outCol]);
+            *out4 = *acc4;
+          } else if (outRow < n) {
+            for (int c = 0; c < 4 && outCol + c < m; c++)
+              OUT[outRow * m + outCol + c] = acc[wm * TM + i][wn * TN + j + c];
+          }
+        }
+}
+
 __global__ void kernel_warptiled_ashared_T(float *A, float *B, float *OUT, int n, int k, int m) {
   __shared__ float As[BK][BS]; // transposed: k-major, was As[BS][BK]
   __shared__ float Bs[BK][BS];
@@ -523,7 +672,7 @@ void matmul_alloc(float *A, float *B, int n, int k, int m) {
 void matmul_gpu(int n, int k, int m) {
   dim3 block(NUM_THREADS);
   dim3 grid((m + BS - 1) / BS, (n + BS - 1) / BS);
-  kernel_warptiled_ashared_T<<<grid, block>>>(A_c, B_c, OUT_c, n, k, m);
+  kernel_warptiled_doublebuf<<<grid, block>>>(A_c, B_c, OUT_c, n, k, m);
   cudaDeviceSynchronize();
 }
 
@@ -535,4 +684,23 @@ void matmul_get(float *OUT, int n, int m) {
   cudaFree(A_c);
   cudaFree(B_c);
   cudaFree(OUT_c);
+}
+
+// Final CUBLAS
+#include <cublas_v2.h>
+
+static cublasHandle_t g_handle = nullptr;
+
+void matmul_gpu_cublas(int n, int k, int m) {
+  if (!g_handle)
+    cublasCreate(&g_handle);
+
+  const float alpha = 1.0f, beta = 0.0f;
+  // row-major C(n x m) = A(n x k) . B(k x m)
+  // computed as column-major C^T(m x n) = B^T . A^T  -> pass B then A, both OP_N
+  cublasSgemm(g_handle, CUBLAS_OP_N, CUBLAS_OP_N, m, n, k, // M, N, K in cuBLAS's (column-major) frame
+              &alpha, B_c, m,                              // first operand = B, leading dim = m
+              A_c, k,                                      // second operand = A, leading dim = k
+              &beta, OUT_c, m);                            // result = OUT, leading dim = m
+  cudaDeviceSynchronize();
 }
