@@ -1,0 +1,11 @@
+# build artifacts
+/matmul
+*.o
+
+# oracle scratch dumps
+A.bin
+B.bin
+C.bin
+
+# Nsight Compute reports (large binaries — kept locally, not committed)
+*.ncu-rep

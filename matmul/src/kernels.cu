@@ -669,6 +669,48 @@ void matmul_alloc(float *A, float *B, int n, int k, int m) {
   cudaMemcpy(B_c, B, k * m * sizeof(float), cudaMemcpyHostToDevice);
 }
 
+// --- per-kernel launchers for the full ladder (each kernel's correct config) ---
+// naive & shared: one tile per block (TILE x TILE threads, 1 output/thread)
+void run_naive(int n, int k, int m) {
+  dim3 block(TILE, TILE);
+  dim3 grid((m + TILE - 1) / TILE, (n + TILE - 1) / TILE);
+  kernel_naive<<<grid, block>>>(A_c, B_c, OUT_c, n, k, m);
+  cudaDeviceSynchronize();
+}
+void run_shared(int n, int k, int m) {
+  dim3 block(TILE, TILE);
+  dim3 grid((m + TILE - 1) / TILE, (n + TILE - 1) / TILE);
+  kernel_shared_memory_tiled<<<grid, block>>>(A_c, B_c, OUT_c, n, k, m);
+  cudaDeviceSynchronize();
+}
+// reg & float4: TILE x TILE threads, each owns an 8x8 register tile -> BS-sized blocks
+void run_reg(int n, int k, int m) {
+  dim3 block(TILE, TILE);
+  dim3 grid((m + BS - 1) / BS, (n + BS - 1) / BS);
+  kernel_shared_reg_tiled<<<grid, block>>>(A_c, B_c, OUT_c, n, k, m);
+  cudaDeviceSynchronize();
+}
+void run_float4(int n, int k, int m) {
+  dim3 block(TILE, TILE);
+  dim3 grid((m + BS - 1) / BS, (n + BS - 1) / BS);
+  kernel_reg_float4<<<grid, block>>>(A_c, B_c, OUT_c, n, k, m);
+  cudaDeviceSynchronize();
+}
+// warp-tiled family: 1-D block of NUM_THREADS lanes, BS-sized blocks
+void run_warptile(int n, int k, int m) {
+  dim3 block(NUM_THREADS);
+  dim3 grid((m + BS - 1) / BS, (n + BS - 1) / BS);
+  kernel_warptile<<<grid, block>>>(A_c, B_c, OUT_c, n, k, m);
+  cudaDeviceSynchronize();
+}
+void run_warptile_T(int n, int k, int m) {
+  dim3 block(NUM_THREADS);
+  dim3 grid((m + BS - 1) / BS, (n + BS - 1) / BS);
+  kernel_warptiled_ashared_T<<<grid, block>>>(A_c, B_c, OUT_c, n, k, m);
+  cudaDeviceSynchronize();
+}
+
+// matmul_gpu == the final kernel (warp-tiled + transposed-As + double-buffered)
 void matmul_gpu(int n, int k, int m) {
   dim3 block(NUM_THREADS);
   dim3 grid((m + BS - 1) / BS, (n + BS - 1) / BS);
@@ -676,14 +718,20 @@ void matmul_gpu(int n, int k, int m) {
   cudaDeviceSynchronize();
 }
 
-void matmul_get(float *OUT, int n, int m) {
-  // Copy data
+void matmul_copyout(float *OUT, int n, int m) {
   cudaMemcpy(OUT, OUT_c, n * m * sizeof(float), cudaMemcpyDeviceToHost);
+}
 
-  // Free up
+void matmul_free() {
   cudaFree(A_c);
   cudaFree(B_c);
   cudaFree(OUT_c);
+}
+
+// Legacy: copy out then free (kept so old callers still link).
+void matmul_get(float *OUT, int n, int m) {
+  matmul_copyout(OUT, n, m);
+  matmul_free();
 }
 
 // Final CUBLAS
