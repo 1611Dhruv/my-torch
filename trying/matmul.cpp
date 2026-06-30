@@ -120,12 +120,12 @@ int main() {
 
   // Actual ones
   bench(16384, 1024, 16384);
-  /* Bigger Faster Better Future
   bench(2048, 1024, 2048);
   bench(1024, 16384, 2048); // Maybe? Just  GPU
   bench(16384, 16384, 16384);
   bench(16384, 32768, 16384); // Oh? Reg tiling
   bench(32768, 32768, 32768); // Oh? Reg tiling
+  /* Bigger Faster Better Future
    */
   return 0;
 }

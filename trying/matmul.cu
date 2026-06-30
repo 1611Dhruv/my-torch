@@ -9,6 +9,226 @@ float *OUT_c;
 #define BS (TILE * REG)
 #define BK 8
 
+#define WM 16
+#define WN 128
+#define WNITER 2
+#define TM 8
+#define TN 4
+#define NUM_THREADS 256
+#define WMITER ((WM * WN) / (32 * TM * TN * WNITER)) // = 1
+#define WSUBM (WM / WMITER)                          // = 16
+#define WSUBN (WN / WNITER)                          // = 64
+
+__global__ void kernel_warptiled_ashared_T(float *A, float *B, float *OUT, int n, int k, int m) {
+  __shared__ float As[BK][BS]; // transposed: k-major, was As[BS][BK]
+  __shared__ float Bs[BK][BS];
+  float4 zeros{0, 0, 0, 0};
+
+  int blockRow = blockIdx.y * BS;
+  int blockCol = blockIdx.x * BS;
+
+  int warpIdx = threadIdx.x / 32;
+  int warpRow = warpIdx / (BS / WN);
+  int warpCol = warpIdx % (BS / WN);
+
+  int laneIdx = threadIdx.x % 32;
+  int threadRowInWarp = laneIdx / (WSUBN / TN);
+  int threadColInWarp = laneIdx % (WSUBN / TN);
+
+  float a[WMITER * TM] = {};
+  float b[WNITER * TN] = {};
+  float acc[WMITER * TM][WNITER * TN] = {};
+
+  for (int p = 0; p <= k / BK; p++) {
+    // ---- load A block: coalesced float4 read, transposed scalar store ----
+    for (int i = threadIdx.x; i < BS * BK / 4; i += NUM_THREADS) {
+      int s_row = i / (BK / 4);       // m-index within block
+      int s_col = (i % (BK / 4)) * 4; // k-index within block
+      int g_row = blockRow + s_row;
+      int g_col = p * BK + s_col;
+
+      float4 tmp;
+      if (g_row >= n || g_col >= k) {
+        tmp = zeros;
+      } else if (k - g_col >= 4) {
+        tmp = *reinterpret_cast<float4 *>(&A[g_row * k + g_col]); // contiguous read kept
+      } else {
+        tmp.x = (g_col + 0 < k) ? A[g_row * k + g_col + 0] : 0.f;
+        tmp.y = (g_col + 1 < k) ? A[g_row * k + g_col + 1] : 0.f;
+        tmp.z = (g_col + 2 < k) ? A[g_row * k + g_col + 2] : 0.f;
+        tmp.w = (g_col + 3 < k) ? A[g_row * k + g_col + 3] : 0.f;
+      }
+      // transpose on the way into smem: 4 k-values go to 4 different rows
+      As[s_col + 0][s_row] = tmp.x;
+      As[s_col + 1][s_row] = tmp.y;
+      As[s_col + 2][s_row] = tmp.z;
+      As[s_col + 3][s_row] = tmp.w;
+    }
+
+    // ---- load B block: unchanged (float4 along m) ----
+    for (int i = threadIdx.x; i < BK * BS / 4; i += NUM_THREADS) {
+      int s_row = i / (BS / 4);
+      int s_col = (i % (BS / 4)) * 4;
+      int g_row = p * BK + s_row;
+      int g_col = blockCol + s_col;
+      float4 *Bs4 = reinterpret_cast<float4 *>(&Bs[s_row][s_col]);
+      float4 *B4 = reinterpret_cast<float4 *>(&B[g_row * m + g_col]);
+      if (g_row >= k || g_col >= m) {
+        *Bs4 = zeros;
+      } else if (m - g_col >= 4) {
+        *Bs4 = *B4;
+      } else {
+        for (int c = 0; c < 4; c++)
+          Bs[s_row][s_col + c] = (g_col + c < m) ? B[g_row * m + g_col + c] : 0;
+      }
+    }
+    __syncthreads();
+
+    for (int kk = 0; kk < BK; kk++) {
+      // ---- A read: now contiguous, vectorized like B (conflict-free) ----
+      for (int wm = 0; wm < WMITER; wm++)
+        for (int i = 0; i < TM; i += 4) {
+          int row = warpRow * WM + wm * WSUBM + threadRowInWarp * TM + i;
+          float4 *a4 = reinterpret_cast<float4 *>(&a[wm * TM + i]);
+          float4 *As4 = reinterpret_cast<float4 *>(&As[kk][row]);
+          *a4 = *As4;
+        }
+      // ---- B read: unchanged ----
+      for (int wn = 0; wn < WNITER; wn++)
+        for (int j = 0; j < TN; j += 4) {
+          int col = warpCol * WN + wn * WSUBN + threadColInWarp * TN + j;
+          float4 *b4 = reinterpret_cast<float4 *>(&b[wn * TN + j]);
+          float4 *Bs4 = reinterpret_cast<float4 *>(&Bs[kk][col]);
+          *b4 = *Bs4;
+        }
+      for (int wm = 0; wm < WMITER; wm++)
+        for (int wn = 0; wn < WNITER; wn++)
+          for (int i = 0; i < TM; i++)
+            for (int j = 0; j < TN; j++)
+              acc[wm * TM + i][wn * TN + j] += a[wm * TM + i] * b[wn * TN + j];
+    }
+    __syncthreads();
+  }
+
+  // ---- writeback: unchanged ----
+  for (int wm = 0; wm < WMITER; wm++)
+    for (int wn = 0; wn < WNITER; wn++)
+      for (int i = 0; i < TM; i++)
+        for (int j = 0; j < TN; j += 4) {
+          int outRow = blockRow + warpRow * WM + wm * WSUBM + threadRowInWarp * TM + i;
+          int outCol = blockCol + warpCol * WN + wn * WSUBN + threadColInWarp * TN + j;
+          if (outRow < n && outCol + 3 < m) {
+            float4 *acc4 = reinterpret_cast<float4 *>(&acc[wm * TM + i][wn * TN + j]);
+            float4 *out4 = reinterpret_cast<float4 *>(&OUT[outRow * m + outCol]);
+            *out4 = *acc4;
+          } else if (outRow < n) {
+            for (int c = 0; c < 4 && outCol + c < m; c++)
+              OUT[outRow * m + outCol + c] = acc[wm * TM + i][wn * TN + j + c];
+          }
+        }
+}
+
+__global__ void kernel_warptile(float *A, float *B, float *OUT, int n, int k, int m) {
+  __shared__ float As[BS][BK];
+  __shared__ float Bs[BK][BS];
+  float4 zeros{0, 0, 0, 0};
+
+  int blockRow = blockIdx.y * BS;
+  int blockCol = blockIdx.x * BS;
+
+  // warp placement in the block tile
+  int warpIdx = threadIdx.x / 32;
+  int warpRow = warpIdx / (BS / WN);
+  int warpCol = warpIdx % (BS / WN);
+
+  // lane placement inside one warp subtile
+  int laneIdx = threadIdx.x % 32;
+  int threadRowInWarp = laneIdx / (WSUBN / TN);
+  int threadColInWarp = laneIdx % (WSUBN / TN);
+
+  float a[WMITER * TM] = {};
+  float b[WNITER * TN] = {};
+  float acc[WMITER * TM][WNITER * TN] = {};
+
+  for (int p = 0; p <= k / BK; p++) {
+    // load A block (BS x BK), float4 along k
+    for (int i = threadIdx.x; i < BS * BK / 4; i += NUM_THREADS) {
+      int s_row = i / (BK / 4);
+      int s_col = (i % (BK / 4)) * 4;
+      int g_row = blockRow + s_row;
+      int g_col = p * BK + s_col;
+      float4 *As4 = reinterpret_cast<float4 *>(&As[s_row][s_col]);
+      float4 *A4 = reinterpret_cast<float4 *>(&A[g_row * k + g_col]);
+      if (g_row >= n || g_col >= k) {
+        *As4 = zeros;
+      } else if (k - g_col >= 4) {
+        *As4 = *A4;
+      } else {
+        for (int c = 0; c < 4; c++)
+          As[s_row][s_col + c] = (g_col + c < k) ? A[g_row * k + g_col + c] : 0;
+      }
+    }
+    // load B block (BK x BS), float4 along m
+    for (int i = threadIdx.x; i < BK * BS / 4; i += NUM_THREADS) {
+      int s_row = i / (BS / 4);
+      int s_col = (i % (BS / 4)) * 4;
+      int g_row = p * BK + s_row;
+      int g_col = blockCol + s_col;
+      float4 *Bs4 = reinterpret_cast<float4 *>(&Bs[s_row][s_col]);
+      float4 *B4 = reinterpret_cast<float4 *>(&B[g_row * m + g_col]);
+      if (g_row >= k || g_col >= m) {
+        *Bs4 = zeros;
+      } else if (m - g_col >= 4) {
+        *Bs4 = *B4;
+      } else {
+        for (int c = 0; c < 4; c++)
+          Bs[s_row][s_col + c] = (g_col + c < m) ? B[g_row * m + g_col + c] : 0;
+      }
+    }
+    __syncthreads();
+
+    for (int kk = 0; kk < BK; kk++) {
+      // regM: scalar, strided column read of As (still bank-conflicted)
+      for (int wm = 0; wm < WMITER; wm++)
+        for (int i = 0; i < TM; i++) {
+          int row = warpRow * WM + wm * WSUBM + threadRowInWarp * TM + i;
+          a[wm * TM + i] = As[row][kk];
+        }
+      // regN: float4 contiguous read of Bs row
+      for (int wn = 0; wn < WNITER; wn++)
+        for (int j = 0; j < TN; j += 4) {
+          int col = warpCol * WN + wn * WSUBN + threadColInWarp * TN + j;
+          float4 *b4 = reinterpret_cast<float4 *>(&b[wn * TN + j]);
+          float4 *Bs4 = reinterpret_cast<float4 *>(&Bs[kk][col]);
+          *b4 = *Bs4;
+        }
+      // outer products into per-thread accumulators
+      for (int wm = 0; wm < WMITER; wm++)
+        for (int wn = 0; wn < WNITER; wn++)
+          for (int i = 0; i < TM; i++)
+            for (int j = 0; j < TN; j++)
+              acc[wm * TM + i][wn * TN + j] += a[wm * TM + i] * b[wn * TN + j];
+    }
+    __syncthreads();
+  }
+
+  // writeback
+  for (int wm = 0; wm < WMITER; wm++)
+    for (int wn = 0; wn < WNITER; wn++)
+      for (int i = 0; i < TM; i++)
+        for (int j = 0; j < TN; j += 4) {
+          int outRow = blockRow + warpRow * WM + wm * WSUBM + threadRowInWarp * TM + i;
+          int outCol = blockCol + warpCol * WN + wn * WSUBN + threadColInWarp * TN + j;
+          if (outRow < n && outCol + 3 < m) {
+            float4 *acc4 = reinterpret_cast<float4 *>(&acc[wm * TM + i][wn * TN + j]);
+            float4 *out4 = reinterpret_cast<float4 *>(&OUT[outRow * m + outCol]);
+            *out4 = *acc4;
+          } else if (outRow < n) {
+            for (int c = 0; c < 4 && outCol + c < m; c++)
+              OUT[outRow * m + outCol + c] = acc[wm * TM + i][wn * TN + j + c];
+          }
+        }
+}
 __global__ void kernel_reg_float4(float *A, float *B, float *OUT, int n, int k, int m) {
   __shared__ float As[BS][BK];
   __shared__ float Bs[BK][BS];
@@ -301,9 +521,9 @@ void matmul_alloc(float *A, float *B, int n, int k, int m) {
 }
 
 void matmul_gpu(int n, int k, int m) {
-  dim3 block(TILE, TILE);
+  dim3 block(NUM_THREADS);
   dim3 grid((m + BS - 1) / BS, (n + BS - 1) / BS);
-  kernel_reg_float4<<<grid, block>>>(A_c, B_c, OUT_c, n, k, m);
+  kernel_warptiled_ashared_T<<<grid, block>>>(A_c, B_c, OUT_c, n, k, m);
   cudaDeviceSynchronize();
 }
 
