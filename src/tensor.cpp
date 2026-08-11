@@ -104,6 +104,10 @@ Tensor Tensor::contiguous() const {
   if (is_contiguous())
     return *this;
 
+  // If the device is CUDA, move to CPU and then
+  // make it contiguous and move back to CUDA
+  if (device() == CUDA) {
+  }
   Tensor out(_shape, _dtype, device());
   std::vector<int64_t> idx(_shape.size(), 0);
   size_t size = itemsize(_dtype);

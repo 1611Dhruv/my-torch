@@ -18,7 +18,7 @@ template <typename scalar_t, const bool a_transp, const bool b_transp, const int
           const int BK = 4, const int WM = 64, const int WN = 64, const int TM = 8, const int TN = 4,
           const int WN_ITER = 2>
 __global__ void matmul_kernel(const scalar_t *__restrict__ A, const scalar_t *__restrict__ B, scalar_t *__restrict__ C,
-                              int M, int K, int N) {
+                              int64_t M, int64_t K, int64_t N) {
   // +1 padding for non coalasced things
   __shared__ scalar_t As[2][BK][BM + 1];
   __shared__ scalar_t Bs[2][BK][BN + 1];
@@ -33,6 +33,7 @@ __global__ void matmul_kernel(const scalar_t *__restrict__ A, const scalar_t *__
   static_assert(WM_ITER * WN_ITER * TM * TN * 32 == WM * WN, "The warp tiled configuration do not match");
   static_assert(LANE_ROWS * LANE_COLS == 32, "The warp must have only 32 lanes");
 
+  int64_t batch_off = blockIdx.z * M * N;
   int roff = blockIdx.y * BM;
   int coff = blockIdx.x * BN;
   int tid = threadIdx.x;
@@ -54,7 +55,7 @@ __global__ void matmul_kernel(const scalar_t *__restrict__ A, const scalar_t *__
 
         int gr = koff + lr;
         int gc = roff + lc;
-        As[pw][lr][lc] = (gr < K && gc < M) ? A[gr * M + gc] : scalar_t{};
+        As[pw][lr][lc] = (gr < K && gc < M) ? A[batch_off + gr * M + gc] : scalar_t{};
       }
     } else {
       for (int i = tid; i < BK * BM; i += tt) {
@@ -63,7 +64,7 @@ __global__ void matmul_kernel(const scalar_t *__restrict__ A, const scalar_t *__
 
         int gr = roff + lr;
         int gc = koff + lc;
-        As[pw][lc][lr] = (gr < M && gc < K) ? A[gr * K + gc] : scalar_t{};
+        As[pw][lc][lr] = (gr < M && gc < K) ? A[batch_off + gr * K + gc] : scalar_t{};
       }
     }
   };
@@ -76,7 +77,7 @@ __global__ void matmul_kernel(const scalar_t *__restrict__ A, const scalar_t *__
 
         int gr = coff + lr;
         int gc = koff + lc;
-        Bs[pw][lc][lr] = (gr < N && gc < K) ? B[gr * K + gc] : scalar_t{};
+        Bs[pw][lc][lr] = (gr < N && gc < K) ? B[batch_off + gr * K + gc] : scalar_t{};
       }
     } else {
       for (int i = tid; i < BK * BN; i += tt) {
@@ -85,7 +86,7 @@ __global__ void matmul_kernel(const scalar_t *__restrict__ A, const scalar_t *__
 
         int gr = koff + lr;
         int gc = coff + lc;
-        Bs[pw][lr][lc] = (gr < K && gc < N) ? B[gr * N + gc] : scalar_t{};
+        Bs[pw][lr][lc] = (gr < K && gc < N) ? B[batch_off + gr * N + gc] : scalar_t{};
       }
     }
   };
@@ -152,7 +153,7 @@ __global__ void matmul_kernel(const scalar_t *__restrict__ A, const scalar_t *__
           int c = coff + wcoff + wj * WN_STMP + (lane % LANE_COLS) * TN + j;
 
           if (r < M && c < N) {
-            C[r * N + c] = acc[wi][wj][i][j];
+            C[batch_off + r * N + c] = acc[wi][wj][i][j];
           }
         }
       }
@@ -160,19 +161,15 @@ __global__ void matmul_kernel(const scalar_t *__restrict__ A, const scalar_t *__
   }
 }
 
-Tensor matmul(const Tensor &a, const Tensor &b) {
+Tensor matmul(const Tensor &a, const Tensor &b, int64_t B, int64_t M, int64_t K, int64_t N) {
   assert(a.dtype() == b.dtype());
   assert(a.shape().size() == 2 && b.shape().size() == 2);
   assert(a.shape()[1] == b.shape()[0]);
   assert(a.device() == Device::CUDA);
 
-  int64_t n1 = a.shape()[0];
-  int64_t n2 = a.shape()[1];
-  int64_t n3 = b.shape()[1];
+  Tensor out({B, M, N}, a.dtype(), a.device());
 
-  Tensor out({n1, n3}, a.dtype(), a.device());
-
-  dim3 grid((n3 + 127) / 128, (n1 + 127) / 128);
+  dim3 grid((N + 127) / 128, (M + 127) / 128, B);
   dim3 block(128);
 
   bool at = !a.is_contiguous();
@@ -181,16 +178,16 @@ Tensor matmul(const Tensor &a, const Tensor &b) {
   DISPATCH_OP(a.dtype(), [&] {
     if (at && bt) {
       matmul_kernel<scalar_t, true, true>
-          <<<grid, block>>>(a.data_ptr<scalar_t>(), b.data_ptr<scalar_t>(), out.data_ptr<scalar_t>(), n1, n2, n3);
+          <<<grid, block>>>(a.data_ptr<scalar_t>(), b.data_ptr<scalar_t>(), out.data_ptr<scalar_t>(), M, K, N);
     } else if (at && !bt) {
       matmul_kernel<scalar_t, true, false>
-          <<<grid, block>>>(a.data_ptr<scalar_t>(), b.data_ptr<scalar_t>(), out.data_ptr<scalar_t>(), n1, n2, n3);
+          <<<grid, block>>>(a.data_ptr<scalar_t>(), b.data_ptr<scalar_t>(), out.data_ptr<scalar_t>(), M, K, N);
     } else if (!at && bt) {
       matmul_kernel<scalar_t, false, true>
-          <<<grid, block>>>(a.data_ptr<scalar_t>(), b.data_ptr<scalar_t>(), out.data_ptr<scalar_t>(), n1, n2, n3);
+          <<<grid, block>>>(a.data_ptr<scalar_t>(), b.data_ptr<scalar_t>(), out.data_ptr<scalar_t>(), M, K, N);
     } else {
       matmul_kernel<scalar_t, false, false>
-          <<<grid, block>>>(a.data_ptr<scalar_t>(), b.data_ptr<scalar_t>(), out.data_ptr<scalar_t>(), n1, n2, n3);
+          <<<grid, block>>>(a.data_ptr<scalar_t>(), b.data_ptr<scalar_t>(), out.data_ptr<scalar_t>(), M, K, N);
     }
   });
 

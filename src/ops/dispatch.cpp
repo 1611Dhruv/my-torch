@@ -50,11 +50,7 @@ Tensor matmul(const Tensor &a, const Tensor &b) {
     throw std::invalid_argument("matmul dispatch: tensors should have the same dtype, casting not supported yet");
   }
 
-  if (a.shape().size() != 2 || b.shape().size() != 2) {
-    throw std::invalid_argument("matmul dispatch: invalid tensor shape");
-  }
-
-  if (a.shape()[1] != b.shape()[0]) {
+  if (a.shape().size() < 2 || b.shape().size() < 2) {
     throw std::invalid_argument("matmul dispatch: invalid tensor shape");
   }
 
@@ -63,10 +59,37 @@ Tensor matmul(const Tensor &a, const Tensor &b) {
         "matmul dispatch: tensor device mismatch"); // TODO: implement data transfer instead of throwing
   }
 
+  auto AS = a.shape();
+  auto BS = b.shape();
+
+  int64_t K = AS.back();
+  AS.pop_back();
+  int64_t M = AS.back();
+  AS.pop_back();
+
+  int64_t N = BS.back();
+  BS.pop_back();
+
+  if (BS.back() != K) {
+    throw std::invalid_argument("matmul dispatch: the reducing dimension K is not the same");
+  } else {
+    BS.pop_back();
+  }
+
+  // TODO: reconstruct this logic to allow for broadcasts
+  if (AS != BS) {
+    throw std::invalid_argument("matmul dispatch: the batch dimensions do not agree");
+  }
+  // Otherwise we find our batch
+  int64_t B = 1;
+  auto &BATCH = AS;
+  for (auto b : BATCH)
+    B *= b;
+
   if (a.device() == CUDA)
-    return cuda::matmul(a, b);
+    return cuda::matmul(a, b, B, M, K, N);
   else
-    return cpu::matmul(a, b);
+    return cpu::matmul(a, b, B, M, K, N);
 }
 
 } // namespace torch

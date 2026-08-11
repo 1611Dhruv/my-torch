@@ -31,7 +31,7 @@ namespace cpu {
 Tensor add(const Tensor &a, const Tensor &b);
 Tensor sub(const Tensor &a, const Tensor &b);
 Tensor mult(const Tensor &a, const Tensor &b);
-Tensor matmul(const Tensor &a, const Tensor &b);
+Tensor matmul(const Tensor &a, const Tensor &b, int64_t B, int64_t M, int64_t K, int64_t N);
 
 Tensor neg(const Tensor &a);
 Tensor sin(const Tensor &a);
@@ -51,7 +51,7 @@ namespace cuda {
 Tensor add(const Tensor &a, const Tensor &b);
 Tensor sub(const Tensor &a, const Tensor &b);
 Tensor mult(const Tensor &a, const Tensor &b);
-Tensor matmul(const Tensor &a, const Tensor &b);
+Tensor matmul(const Tensor &a, const Tensor &b, int64_t B, int64_t M, int64_t K, int64_t N);
 
 Tensor neg(const Tensor &a);
 Tensor sin(const Tensor &a);

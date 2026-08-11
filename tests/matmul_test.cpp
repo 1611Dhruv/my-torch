@@ -120,7 +120,7 @@ static void check_cuda_matmul(int64_t M, int64_t K, int64_t N, bool a_view, bool
   Tensor a = cuda_operand(ha, M, K, a_view);
   Tensor b = cuda_operand(hb, K, N, b_view);
 
-  Tensor c = torch::cuda::matmul(a, b);
+  Tensor c = torch::matmul(a, b);
   ASSERT_EQ(c.shape(), Shape({M, N}));
   ASSERT_TRUE(c.is_contiguous());
 
@@ -139,7 +139,7 @@ static std::vector<float> run_cuda_matmul(const std::vector<float> &hA, const st
   CUDA_CHECK(cudaMemcpy(a.data_ptr<float>(), hA.data(), M * K * sizeof(float), cudaMemcpyHostToDevice));
   CUDA_CHECK(cudaMemcpy(b.data_ptr<float>(), hB.data(), K * N * sizeof(float), cudaMemcpyHostToDevice));
 
-  Tensor c = torch::cuda::matmul(a, b);
+  Tensor c = torch::matmul(a, b);
   EXPECT_EQ(c.shape(), Shape({M, N}));
 
   std::vector<float> hC(M * N);
@@ -157,7 +157,7 @@ TEST(MatmulCpuTest, SquareKnownValues) {
   // [3 4]*[7 8] = [3*5+4*7  3*6+4*8] = [43 50]
   Tensor a = make_cpu({2, 2}, {1, 2, 3, 4});
   Tensor b = make_cpu({2, 2}, {5, 6, 7, 8});
-  Tensor out = torch::cpu::matmul(a, b);
+  Tensor out = torch::matmul(a, b);
   EXPECT_EQ(out.shape(), Shape({2, 2}));
   expect_close(out, {19, 22, 43, 50});
 }
@@ -168,7 +168,7 @@ TEST(MatmulCpuTest, RectangularMatchesOracle) {
   auto ha = gen(M * K), hb = gen(K * N);
   Tensor a = make_cpu({M, K}, ha);
   Tensor b = make_cpu({K, N}, hb);
-  Tensor out = torch::cpu::matmul(a, b);
+  Tensor out = torch::matmul(a, b);
   EXPECT_EQ(out.shape(), Shape({M, N}));
   expect_close(out, reference_matmul(ha, hb, M, K, N));
 }
@@ -182,7 +182,7 @@ TEST(MatmulCpuTest, IdentityIsNoOp) {
     id[d * K + d] = 1.0f;
   Tensor a = make_cpu({M, K}, ha);
   Tensor i = make_cpu({K, K}, id);
-  Tensor out = torch::cpu::matmul(a, i);
+  Tensor out = torch::matmul(a, i);
   expect_close(out, ha);
 }
 
@@ -191,7 +191,7 @@ TEST(MatmulCpuTest, LargerNonDivisibleMatchesOracle) {
   auto ha = gen(M * K), hb = gen(K * N);
   Tensor a = make_cpu({M, K}, ha);
   Tensor b = make_cpu({K, N}, hb);
-  Tensor out = torch::cpu::matmul(a, b);
+  Tensor out = torch::matmul(a, b);
   EXPECT_EQ(out.shape(), Shape({M, N}));
   expect_close(out, reference_matmul(ha, hb, M, K, N));
 }
@@ -201,7 +201,7 @@ TEST(MatmulCpuTest, DoesNotMutateInputs) {
   auto ha = gen(M * K), hb = gen(K * N);
   Tensor a = make_cpu({M, K}, ha);
   Tensor b = make_cpu({K, N}, hb);
-  (void)torch::cpu::matmul(a, b);
+  (void)torch::matmul(a, b);
   expect_close(a, ha);
   expect_close(b, hb);
 }
@@ -330,8 +330,8 @@ TEST(CudaMatmulTransposeTest, TransposedMatchesMaterializedContiguous) {
   Tensor a_flat = make_cuda({M, K}, ha);
   Tensor b_flat = make_cuda({K, N}, hb);
 
-  auto strided = to_host(torch::cuda::matmul(a_view, b_view));
-  auto materialized = to_host(torch::cuda::matmul(a_flat, b_flat));
+  auto strided = to_host(torch::matmul(a_view, b_view));
+  auto materialized = to_host(torch::matmul(a_flat, b_flat));
   ASSERT_EQ(strided.size(), materialized.size());
   for (size_t p = 0; p < strided.size(); ++p)
     EXPECT_FLOAT_EQ(strided[p], materialized[p]) << "at flat index " << p;
@@ -349,7 +349,7 @@ TEST(CudaMatmulTransposeTest, DoubleTransposeIsContiguousAgain) {
   auto ha = gen(64), hb = gen(64);
   Tensor b = make_cuda({8, 8}, hb);
   Tensor a2 = make_cuda({8, 8}, ha);
-  auto got = to_host(torch::cuda::matmul(a2.transpose(0, 1).transpose(0, 1), b));
+  auto got = to_host(torch::matmul(a2.transpose(0, 1).transpose(0, 1), b));
   auto want = reference_matmul(ha, hb, 8, 8, 8);
   for (size_t p = 0; p < want.size(); ++p)
     EXPECT_NEAR(got[p], want[p], 1e-3f);
@@ -365,7 +365,7 @@ TEST(CudaMatmulTransposeTest, TransposeIsNotMutatedByMatmul) {
   Tensor a = storage.transpose(0, 1);
   Tensor b = make_cuda({K, N}, gen(K * N));
 
-  (void)torch::cuda::matmul(a, b);
+  (void)torch::matmul(a, b);
   EXPECT_EQ(to_host(storage), backing);
 }
 
@@ -410,7 +410,7 @@ TEST(CpuMatmulTransposeTest, TransposedMatchesOracle) {
   ASSERT_FALSE(a.is_contiguous());
   ASSERT_FALSE(b.is_contiguous());
 
-  Tensor out = torch::cpu::matmul(a, b);
+  Tensor out = torch::matmul(a, b);
   EXPECT_EQ(out.shape(), Shape({M, N}));
   expect_close(out, reference_matmul(ha, hb, M, K, N));
 }
@@ -420,7 +420,7 @@ TEST(CpuMatmulTransposeTest, OnlyATransposedMatchesOracle) {
   auto ha = gen(M * K), hb = gen(K * N);
   Tensor a = make_cpu({K, M}, host_transpose(ha, M, K)).transpose(0, 1);
   Tensor b = make_cpu({K, N}, hb);
-  Tensor out = torch::cpu::matmul(a, b);
+  Tensor out = torch::matmul(a, b);
   expect_close(out, reference_matmul(ha, hb, M, K, N));
 }
 
@@ -429,7 +429,7 @@ TEST(CpuMatmulTransposeTest, OnlyBTransposedMatchesOracle) {
   auto ha = gen(M * K), hb = gen(K * N);
   Tensor a = make_cpu({M, K}, ha);
   Tensor b = make_cpu({N, K}, host_transpose(hb, K, N)).transpose(0, 1);
-  Tensor out = torch::cpu::matmul(a, b);
+  Tensor out = torch::matmul(a, b);
   expect_close(out, reference_matmul(ha, hb, M, K, N));
 }
 
@@ -442,7 +442,7 @@ TEST(CpuMatmulTransposeTest, NormalizationDoesNotMutateTheInput) {
   Tensor a = storage.transpose(0, 1);
   Tensor b = make_cpu({K, N}, gen(K * N));
 
-  (void)torch::cpu::matmul(a, b);
+  (void)torch::matmul(a, b);
   expect_close(storage, backing);
   EXPECT_FALSE(a.is_contiguous()); // the view itself is untouched too
 }
@@ -491,7 +491,7 @@ TEST(BatchedCpuMatmulTest, Rank3MatchesPerBatchOracle) {
   auto ha = gen(B * M * K), hb = gen(B * K * N);
   Tensor a = make_cpu({B, M, K}, ha);
   Tensor b = make_cpu({B, K, N}, hb);
-  Tensor out = torch::cpu::matmul(a, b);
+  Tensor out = torch::matmul(a, b);
   EXPECT_EQ(out.shape(), Shape({B, M, N}));
   expect_close(out, reference_batched_matmul(ha, hb, B, M, K, N));
 }
@@ -500,7 +500,7 @@ TEST(BatchedCpuMatmulTest, BatchOfOneEqualsPlainMatmul) {
   // {1,M,K} @ {1,K,N} must agree with the 2-D path and keep its rank-3 shape.
   const int64_t M = 3, K = 4, N = 5;
   auto ha = gen(M * K), hb = gen(K * N);
-  Tensor out = torch::cpu::matmul(make_cpu({1, M, K}, ha), make_cpu({1, K, N}, hb));
+  Tensor out = torch::matmul(make_cpu({1, M, K}, ha), make_cpu({1, K, N}, hb));
   EXPECT_EQ(out.shape(), Shape({1, M, N}));
   expect_close(out, reference_matmul(ha, hb, M, K, N));
 }
@@ -513,7 +513,7 @@ TEST(BatchedCpuMatmulTest, Rank4CollapsesAndRestoresLogicalShape) {
   auto ha = gen(B * M * K), hb = gen(B * K * N);
   Tensor a = make_cpu({B0, B1, M, K}, ha);
   Tensor b = make_cpu({B0, B1, K, N}, hb);
-  Tensor out = torch::cpu::matmul(a, b);
+  Tensor out = torch::matmul(a, b);
   EXPECT_EQ(out.shape(), Shape({B0, B1, M, N}));
   expect_close(out, reference_batched_matmul(ha, hb, B, M, K, N));
 }
@@ -537,7 +537,7 @@ TEST(BatchedCpuMatmulTest, BatchedTransposedOperandIsNormalized) {
   ASSERT_EQ(a.shape(), Shape({B, M, K}));
   ASSERT_FALSE(a.is_contiguous());
 
-  Tensor out = torch::cpu::matmul(a, make_cpu({B, K, N}, hb));
+  Tensor out = torch::matmul(a, make_cpu({B, K, N}, hb));
   EXPECT_EQ(out.shape(), Shape({B, M, N}));
   expect_close(out, reference_batched_matmul(ha, hb, B, M, K, N));
 }
@@ -545,7 +545,7 @@ TEST(BatchedCpuMatmulTest, BatchedTransposedOperandIsNormalized) {
 TEST(BatchedCpuMatmulTest, MismatchedBatchDimsThrow) {
   Tensor a = make_cpu({2, 3, 4}, gen(24));
   Tensor b = make_cpu({3, 4, 5}, gen(60));
-  EXPECT_THROW(torch::cpu::matmul(a, b), std::invalid_argument);
+  EXPECT_THROW(torch::matmul(a, b), std::invalid_argument);
 }
 
 TEST(BatchedCpuMatmulTest, SameBatchProductDifferentBatchShapeThrows) {
@@ -553,7 +553,7 @@ TEST(BatchedCpuMatmulTest, SameBatchProductDifferentBatchShapeThrows) {
   // *before* collapsing is what rejects this; a product-only check would not.
   Tensor a = make_cpu({2, 3, 2, 2}, gen(24));
   Tensor b = make_cpu({6, 2, 2}, gen(24));
-  EXPECT_THROW(torch::cpu::matmul(a, b), std::invalid_argument);
+  EXPECT_THROW(torch::matmul(a, b), std::invalid_argument);
 }
 
 TEST(BatchedCpuMatmulTest, InnerDimCheckedOnTrailingDimsNotBatchDims) {
@@ -562,7 +562,7 @@ TEST(BatchedCpuMatmulTest, InnerDimCheckedOnTrailingDimsNotBatchDims) {
   // operand pair that is genuinely invalid (K=4 vs 7) must still be rejected.
   Tensor a = make_cpu({4, 3, 4}, gen(48));
   Tensor b = make_cpu({4, 7, 5}, gen(140));
-  EXPECT_THROW(torch::cpu::matmul(a, b), std::invalid_argument);
+  EXPECT_THROW(torch::matmul(a, b), std::invalid_argument);
 }
 
 // --- not implemented yet: broadcasting a bare matrix over a batch -----------
@@ -575,14 +575,14 @@ TEST(BatchedCpuMatmulTest, InnerDimCheckedOnTrailingDimsNotBatchDims) {
 TEST(BatchedCpuMatmulTest, Rank3TimesRank2ThrowsForNow) {
   Tensor a = make_cpu({2, 3, 4}, gen(24));
   Tensor b = make_cpu({4, 5}, gen(20));
-  EXPECT_THROW(torch::cpu::matmul(a, b), std::invalid_argument);
+  EXPECT_THROW(torch::matmul(a, b), std::invalid_argument);
 }
 
 TEST(BatchedCpuMatmulTest, DISABLED_BroadcastsBareMatrixOverBatch) {
   // The nn::Linear shape: x{B,T,in} @ W{in,out} -> {B,T,out}, same W reused.
   const int64_t B = 2, M = 3, K = 4, N = 5;
   auto ha = gen(B * M * K), hb = gen(K * N);
-  Tensor out = torch::cpu::matmul(make_cpu({B, M, K}, ha), make_cpu({K, N}, hb));
+  Tensor out = torch::matmul(make_cpu({B, M, K}, ha), make_cpu({K, N}, hb));
   ASSERT_EQ(out.shape(), Shape({B, M, N}));
 
   std::vector<float> tiled; // the same B replicated across the batch
@@ -594,7 +594,7 @@ TEST(BatchedCpuMatmulTest, DISABLED_BroadcastsBareMatrixOverBatch) {
 TEST(BatchedCpuMatmulTest, DISABLED_BroadcastsBareMatrixOnTheLeft) {
   const int64_t B = 2, M = 3, K = 4, N = 5;
   auto ha = gen(M * K), hb = gen(B * K * N);
-  Tensor out = torch::cpu::matmul(make_cpu({M, K}, ha), make_cpu({B, K, N}, hb));
+  Tensor out = torch::matmul(make_cpu({M, K}, ha), make_cpu({B, K, N}, hb));
   ASSERT_EQ(out.shape(), Shape({B, M, N}));
 
   std::vector<float> tiled;
@@ -673,4 +673,96 @@ TEST(MatmulDispatchTest, RoutesCudaAndComputes) {
   auto want = reference_matmul(ha, hb, M, K, N);
   for (int64_t p = 0; p < M * N; ++p)
     EXPECT_NEAR(hC[p], want[p], 1e-3f);
+}
+
+// ===========================================================================
+// Batched CUDA matmul
+//
+// The kernel gets one launch with gridDim.z == B and offsets its three
+// pointers by blockIdx.z. The offsets are *different per operand* --
+// A advances by M*K, B by K*N, C by M*N -- so a single shared offset, or one
+// derived from the tile constants (BM*BN) rather than the matrix dims, is
+// wrong in a way only a B>1 test with distinct M,K,N can see.
+//
+// Every case below therefore uses B > 1 and M != K != N.
+// ===========================================================================
+
+// Stage contiguous {B,M,K} x {B,K,N} to device, matmul, check per-batch.
+// If a_transposed, A is stored as {B,K,M} and viewed through transpose(-1,-2),
+// so the strided load path and the batch offset have to compose correctly.
+static void check_cuda_batched(int64_t B, int64_t M, int64_t K, int64_t N, bool a_transposed) {
+  auto ha = gen(B * M * K), hb = gen(B * K * N);
+
+  Tensor a = [&] {
+    if (!a_transposed)
+      return make_cuda({B, M, K}, ha);
+    std::vector<float> backing;
+    backing.reserve(ha.size());
+    for (int64_t s = 0; s < B; ++s) {
+      std::vector<float> slab(ha.begin() + s * M * K, ha.begin() + (s + 1) * M * K);
+      auto t = host_transpose(slab, M, K);
+      backing.insert(backing.end(), t.begin(), t.end());
+    }
+    Tensor view = make_cuda({B, K, M}, backing).transpose(-1, -2);
+    EXPECT_EQ(view.shape(), Shape({B, M, K}));
+    EXPECT_FALSE(view.is_contiguous());
+    return view;
+  }();
+
+  Tensor c = torch::matmul(a, make_cuda({B, K, N}, hb));
+  ASSERT_EQ(c.shape(), Shape({B, M, N}));
+
+  auto got = to_host(c);
+  auto want = reference_batched_matmul(ha, hb, B, M, K, N);
+  ASSERT_EQ(got.size(), want.size());
+  for (size_t p = 0; p < want.size(); ++p)
+    EXPECT_NEAR(got[p], want[p], 1e-3f)
+        << "batch " << (p / (M * N)) << ", offset " << (p % (M * N)) << " (B=" << B << " M=" << M << " K=" << K
+        << " N=" << N << " a_transposed=" << a_transposed << ")";
+}
+
+TEST(CudaBatchedMatmulTest, BatchOfOneMatchesPlainMatmul) {
+  // B=1 => blockIdx.z is always 0, so this passes even with a broken batch
+  // offset. It's the control: if this fails, the bug is not in the batching.
+  check_cuda_batched(/*B=*/1, /*M=*/70, /*K=*/45, /*N=*/33, /*a_transposed=*/false);
+}
+
+TEST(CudaBatchedMatmulTest, Rank3DistinctDimsMatchesPerBatchOracle) {
+  // THE batch-offset test. M*K=3150, K*N=1485, M*N=2310 are all different from
+  // each other and from BM*BN=16384, so a single or tile-derived offset can't
+  // survive. Dims are also non-divisible, keeping the edge guards live.
+  check_cuda_batched(/*B=*/3, /*M=*/70, /*K=*/45, /*N=*/33, /*a_transposed=*/false);
+}
+
+TEST(CudaBatchedMatmulTest, SmallMatricesManyBatches) {
+  // Matrices far smaller than one 128x128 block tile, so every batch is a
+  // single mostly-masked block. Catches an offset that scales with the tile
+  // size instead of the matrix size.
+  check_cuda_batched(/*B=*/8, /*M=*/5, /*K=*/7, /*N=*/3, /*a_transposed=*/false);
+}
+
+TEST(CudaBatchedMatmulTest, MultiTileWithBatches) {
+  // Larger than one block tile in both M and N *and* batched, so blockIdx.x,
+  // .y and .z are all non-trivial at once.
+  check_cuda_batched(/*B=*/2, /*M=*/200, /*K=*/45, /*N=*/150, /*a_transposed=*/false);
+}
+
+TEST(CudaBatchedMatmulTest, BatchedTransposedOperand) {
+  // The shape autograd actually produces: transpose(-1,-2) on a batched
+  // tensor. The strided load path and the batch offset must compose.
+  check_cuda_batched(/*B=*/3, /*M=*/70, /*K=*/45, /*N=*/33, /*a_transposed=*/true);
+}
+
+TEST(CudaBatchedMatmulTest, Rank4CollapsesAndRestoresLogicalShape) {
+  const int64_t B0 = 2, B1 = 3, M = 24, K = 40, N = 17;
+  const int64_t B = B0 * B1;
+  auto ha = gen(B * M * K), hb = gen(B * K * N);
+  Tensor c = torch::matmul(make_cuda({B0, B1, M, K}, ha), make_cuda({B0, B1, K, N}, hb));
+  ASSERT_EQ(c.shape(), Shape({B0, B1, M, N}));
+
+  auto got = to_host(c);
+  auto want = reference_batched_matmul(ha, hb, B, M, K, N);
+  ASSERT_EQ(got.size(), want.size());
+  for (size_t p = 0; p < want.size(); ++p)
+    EXPECT_NEAR(got[p], want[p], 1e-3f) << "at flat index " << p;
 }

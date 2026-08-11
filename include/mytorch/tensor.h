@@ -22,6 +22,9 @@ public:
   Tensor transpose(int64_t dim1, int64_t dim2) const;
   Tensor contiguous() const;
 
+  // TODO: Need a to method to move across things
+  // Tensor to(DType type, Device dev) const;
+
   // Access Ops
   Tensor operator[](int64_t i) const;
   template <typename T> T &at(std::initializer_list<int64_t> idx);
