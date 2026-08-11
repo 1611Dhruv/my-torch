@@ -60,11 +60,11 @@ private:
 std::shared_ptr<Variable> add(std::shared_ptr<Variable> a, std::shared_ptr<Variable> b);
 std::shared_ptr<Variable> sub(std::shared_ptr<Variable> a, std::shared_ptr<Variable> b);
 std::shared_ptr<Variable> mult(std::shared_ptr<Variable> a, std::shared_ptr<Variable> b);
+std::shared_ptr<Variable> matmul(std::shared_ptr<Variable> a, std::shared_ptr<Variable> b);
 
 /*
  * NOTE: Future
-std::shared_ptr<Variable> matmul(std::shared_ptr<Variable> a, std::shared_ptr<Variable> b);
-*/
+ */
 
 } // namespace autograd
 } // namespace torch

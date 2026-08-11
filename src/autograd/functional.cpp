@@ -19,20 +19,20 @@ void Variable::backward() {
   _grad = Tensor::ones_like(_t);
 
   explore.push({this, false});
-  seen.insert(this);
   while (!explore.empty()) {
     auto [node, finalize] = explore.top();
     explore.pop();
+    // Node already finalized, no need to finalize again
+    if (seen.count(node))
+      continue;
 
     if (finalize) {
       order.push(node);
+      seen.insert(node);
     } else {
       explore.push({node, true});
       for (const auto &input : node->_inputs) {
-        if (seen.count(input.get()))
-          continue;
         explore.push({input.get(), false});
-        seen.insert(input.get());
       }
     }
   }
@@ -71,6 +71,14 @@ std::shared_ptr<Variable> mult(std::shared_ptr<Variable> a, std::shared_ptr<Vari
     b->accumulate_grad(torch::mult(a->data(), g));
   };
   return Variable::fromOp(torch::mult(a->data(), b->data()), {a, b}, backward);
+}
+
+std::shared_ptr<Variable> matmul(std::shared_ptr<Variable> a, std::shared_ptr<Variable> b) {
+  auto backward = [a, b](const Tensor &g) -> void {
+    a->accumulate_grad(torch::matmul(g, b->data().transpose(-1, -2)));
+    b->accumulate_grad(torch::matmul(a->data().transpose(-1, -2), g));
+  };
+  return Variable::fromOp(torch::matmul(a->data(), b->data()), {a, b}, backward);
 }
 
 } // namespace autograd
