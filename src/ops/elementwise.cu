@@ -4,6 +4,9 @@
 #include <cmath>
 #include <cstdint>
 #include <cuda_runtime_api.h>
+#include <sstream>
+
+#define MAX_DIM 8
 
 namespace torch {
 namespace cuda {
@@ -32,9 +35,9 @@ __global__ void unary_kernel(const scalar_t *a, scalar_t *out, int64_t n, Op op)
 // Dont care about internal offsets, can assume data_ptr returns start of this tensor
 struct BinaryStridedDims {
   int ndim;
-  int64_t shape[8];
-  int64_t a_strides[8];
-  int64_t b_strides[8];
+  int64_t shape[MAX_DIM];
+  int64_t a_strides[MAX_DIM];
+  int64_t b_strides[MAX_DIM];
 };
 
 template <typename scalar_t, typename Op>
@@ -64,8 +67,8 @@ __global__ void binary_kernel_strided(const scalar_t *a, const scalar_t *b, scal
 
 struct UnaryStridedDims {
   int ndim;
-  int64_t shape[8];
-  int64_t a_strides[8];
+  int64_t shape[MAX_DIM];
+  int64_t a_strides[MAX_DIM];
 };
 
 template <typename scalar_t, typename Op>
@@ -101,8 +104,10 @@ template <typename Op> Tensor elementwise_binary_wrapper(const Tensor &a, const 
     const auto &stride_b = b.strides();
 
     // Max we support is 8 dims for now, if you need more you seem to have issues....
-    if (shape.size() >= 8) {
-      throw std::invalid_argument("cuda binary: support only maximum of 8 dim shapes");
+    if (shape.size() > MAX_DIM) {
+      std::ostringstream oss;
+      oss << "cuda binary: support only maximum of " << MAX_DIM << " dim shapes";
+      throw std::invalid_argument(oss.str());
     }
 
     // Populate the Stride Op
@@ -150,8 +155,11 @@ template <typename Op> Tensor elementwise_unary_wrapper(const Tensor &a, Op op) 
   int64_t blocks = (n + threads - 1) / threads;
 
   if (!a.is_contiguous()) {
-    if (a.shape().size() >= 8) {
-      throw std::invalid_argument("cuda unary: support only maximum of 8 dim shapes");
+    if (a.shape().size() > MAX_DIM) {
+      std::ostringstream oss;
+      oss << "cuda binary: support only maximum of " << MAX_DIM << " dim shapes";
+      throw std::invalid_argument(oss.str());
+      ;
     }
     UnaryStridedDims stride;
     stride.ndim = a.shape().size();
