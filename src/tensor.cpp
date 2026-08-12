@@ -1,4 +1,5 @@
 #include "mytorch/tensor.h"
+#include "mytorch/ops.h"
 #include "mytorch/storage.h"
 #include <cassert>
 #include <cstdint>
@@ -104,10 +105,10 @@ Tensor Tensor::contiguous() const {
   if (is_contiguous())
     return *this;
 
-  // If the device is CUDA, move to CPU and then
-  // make it contiguous and move back to CUDA
   if (device() == CUDA) {
+    return cuda::contiguous(*this);
   }
+
   Tensor out(_shape, _dtype, device());
   std::vector<int64_t> idx(_shape.size(), 0);
   size_t size = itemsize(_dtype);
@@ -118,7 +119,6 @@ Tensor Tensor::contiguous() const {
     int64_t src_flat = _offset;
     for (int64_t k = 0; k < static_cast<int64_t>(_shape.size()); k++)
       src_flat += idx[k] * _strides[k];
-
     std::memcpy(dst + d * size, src + src_flat * size, size);
     next_index(idx, _shape);
   }

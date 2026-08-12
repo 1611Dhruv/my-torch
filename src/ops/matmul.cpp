@@ -10,11 +10,13 @@ Tensor cpu_matmul(const Tensor &a, const Tensor &b, Tensor &out, int64_t B, int6
   const T *data_a = a.data_ptr<T>(), *data_b = b.data_ptr<T>();
   T *data_out = out.data_ptr<T>();
 
-  for (int64_t b = 0; b < B; b++) {
+  for (int64_t btch = 0; btch < B; btch++) {
     for (int64_t i = 0; i < M; i++) {
       for (int64_t j = 0; j < N; j++) {
         for (int64_t k = 0; k < K; k++)
-          data_out[b * (M * N) + i * N + j] += data_a[b * (M * K) + i * K + k] * data_b[b * (K * N) + k * N + j];
+          data_out[btch * out.strides()[0] + i * out.strides()[1] + j * out.strides()[2]] +=
+              data_a[btch * a.strides()[0] + i * a.strides()[1] + k * a.strides()[2]] *
+              data_b[btch * b.strides()[0] + k * b.strides()[1] + j * b.strides()[2]];
       }
     }
   }

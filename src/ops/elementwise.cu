@@ -62,6 +62,30 @@ __global__ void binary_kernel_strided(const scalar_t *a, const scalar_t *b, scal
   out[i] = op(a[a_i], b[b_i]);
 }
 
+struct UnaryStridedDims {
+  int ndim;
+  int64_t shape[8];
+  int64_t a_strides[8];
+};
+
+template <typename scalar_t, typename Op>
+__global__ void unary_kernel_strided(const scalar_t *a, scalar_t *out, int64_t n, Op op, UnaryStridedDims strides) {
+  int64_t i = blockIdx.x * blockDim.x + threadIdx.x;
+
+  if (i >= n)
+    return;
+
+  int64_t curr = i;
+  int64_t a_i = 0;
+  for (int64_t j = strides.ndim - 1; j >= 0; j--) {
+    int64_t coord = curr % strides.shape[j];
+    curr = curr / strides.shape[j];
+    a_i += coord * strides.a_strides[j];
+  }
+
+  out[i] = op(a[a_i]);
+}
+
 template <typename Op> Tensor elementwise_binary_wrapper(const Tensor &a, const Tensor &b, Op op) {
   assert(a.dtype() == b.dtype());
   assert(a.shape() == b.shape());
@@ -78,7 +102,7 @@ template <typename Op> Tensor elementwise_binary_wrapper(const Tensor &a, const 
 
     // Max we support is 8 dims for now, if you need more you seem to have issues....
     if (shape.size() >= 8) {
-      throw std::invalid_argument("cuda add: support only maximum of 8 dim shapes");
+      throw std::invalid_argument("cuda binary: support only maximum of 8 dim shapes");
     }
 
     // Populate the Stride Op
@@ -119,19 +143,32 @@ Tensor mult(const Tensor &a, const Tensor &b) {
 }
 
 template <typename Op> Tensor elementwise_unary_wrapper(const Tensor &a, Op op) {
-  if (!a.is_contiguous()) {
-    throw std::invalid_argument("cuda elementwise: tensors must be contiguous"); // Make contiguous() cuda aware
-  }
-
   Tensor out(a.shape(), a.dtype(), a.device());
 
   int64_t n = a.numel();
   int threads = 256;
   int64_t blocks = (n + threads - 1) / threads;
 
-  DISPATCH_OP(a.dtype(), [&] {
-    unary_kernel<scalar_t><<<blocks, threads>>>(a.data_ptr<scalar_t>(), out.data_ptr<scalar_t>(), n, op);
-  });
+  if (!a.is_contiguous()) {
+    if (a.shape.size() >= 8) {
+      throw std::invalid_argument("cuda unary: support only maximum of 8 dim shapes");
+    }
+    UnaryStridedDims stride;
+    stride.ndim = a.shape().size();
+    for (int64_t i = 0; i < stride.ndim; i++) {
+      stride.shape[i] = a.shape()[i];
+      stride.a_strides[i] = a.strides()[i];
+    }
+
+    DISPATCH_OP(a.dtype(), [&] {
+      unary_kernel_strided<scalar_t>
+          <<<blocks, threads>>>(a.data_ptr<scalar_t>(), out.data_ptr<scalar_t>(), n, op, stride);
+    });
+  } else {
+    DISPATCH_OP(a.dtype(), [&] {
+      unary_kernel<scalar_t><<<blocks, threads>>>(a.data_ptr<scalar_t>(), out.data_ptr<scalar_t>(), n, op);
+    });
+  }
 
   CUDA_CHECK(cudaGetLastError());
   CUDA_CHECK(cudaDeviceSynchronize()); // TODO: Remove in prod
@@ -153,6 +190,10 @@ Tensor cos(const Tensor &a) {
 
 Tensor exp(const Tensor &a) {
   return elementwise_unary_wrapper(a, [] __device__(auto x) { return expf(x); });
+}
+
+Tensor contiguous(const Tensor &a) {
+  return elementwise_unary_wrapper(a, [] __device__(auto x) { return x; });
 }
 
 } // namespace cuda

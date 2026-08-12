@@ -57,6 +57,7 @@ Tensor neg(const Tensor &a);
 Tensor sin(const Tensor &a);
 Tensor cos(const Tensor &a);
 Tensor exp(const Tensor &a);
+Tensor contiguous(const Tensor &a);
 
 /*
  NOTE: Future
