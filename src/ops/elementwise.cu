@@ -150,7 +150,7 @@ template <typename Op> Tensor elementwise_unary_wrapper(const Tensor &a, Op op) 
   int64_t blocks = (n + threads - 1) / threads;
 
   if (!a.is_contiguous()) {
-    if (a.shape.size() >= 8) {
+    if (a.shape().size() >= 8) {
       throw std::invalid_argument("cuda unary: support only maximum of 8 dim shapes");
     }
     UnaryStridedDims stride;
