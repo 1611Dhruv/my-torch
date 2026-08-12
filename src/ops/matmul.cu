@@ -3,6 +3,7 @@
 #include <cassert>
 #include <cstdint>
 #include <cuda_runtime_api.h>
+#include <string>
 
 namespace torch {
 namespace cuda {
@@ -33,7 +34,10 @@ __global__ void matmul_kernel(const scalar_t *__restrict__ A, const scalar_t *__
   static_assert(WM_ITER * WN_ITER * TM * TN * 32 == WM * WN, "The warp tiled configuration do not match");
   static_assert(LANE_ROWS * LANE_COLS == 32, "The warp must have only 32 lanes");
 
-  int64_t batch_off = blockIdx.z * M * N;
+  int64_t A_batch_off = blockIdx.z * M * K;
+  int64_t B_batch_off = blockIdx.z * K * N;
+  int64_t C_batch_off = blockIdx.z * M * N;
+
   int roff = blockIdx.y * BM;
   int coff = blockIdx.x * BN;
   int tid = threadIdx.x;
@@ -55,7 +59,7 @@ __global__ void matmul_kernel(const scalar_t *__restrict__ A, const scalar_t *__
 
         int gr = koff + lr;
         int gc = roff + lc;
-        As[pw][lr][lc] = (gr < K && gc < M) ? A[batch_off + gr * M + gc] : scalar_t{};
+        As[pw][lr][lc] = (gr < K && gc < M) ? A[A_batch_off + gr * M + gc] : scalar_t{};
       }
     } else {
       for (int i = tid; i < BK * BM; i += tt) {
@@ -64,7 +68,7 @@ __global__ void matmul_kernel(const scalar_t *__restrict__ A, const scalar_t *__
 
         int gr = roff + lr;
         int gc = koff + lc;
-        As[pw][lc][lr] = (gr < M && gc < K) ? A[batch_off + gr * K + gc] : scalar_t{};
+        As[pw][lc][lr] = (gr < M && gc < K) ? A[A_batch_off + gr * K + gc] : scalar_t{};
       }
     }
   };
@@ -77,7 +81,7 @@ __global__ void matmul_kernel(const scalar_t *__restrict__ A, const scalar_t *__
 
         int gr = coff + lr;
         int gc = koff + lc;
-        Bs[pw][lc][lr] = (gr < N && gc < K) ? B[batch_off + gr * K + gc] : scalar_t{};
+        Bs[pw][lc][lr] = (gr < N && gc < K) ? B[B_batch_off + gr * K + gc] : scalar_t{};
       }
     } else {
       for (int i = tid; i < BK * BN; i += tt) {
@@ -86,7 +90,7 @@ __global__ void matmul_kernel(const scalar_t *__restrict__ A, const scalar_t *__
 
         int gr = koff + lr;
         int gc = coff + lc;
-        Bs[pw][lr][lc] = (gr < K && gc < N) ? B[batch_off + gr * N + gc] : scalar_t{};
+        Bs[pw][lr][lc] = (gr < K && gc < N) ? B[B_batch_off + gr * N + gc] : scalar_t{};
       }
     }
   };
@@ -153,7 +157,7 @@ __global__ void matmul_kernel(const scalar_t *__restrict__ A, const scalar_t *__
           int c = coff + wcoff + wj * WN_STMP + (lane % LANE_COLS) * TN + j;
 
           if (r < M && c < N) {
-            C[batch_off + r * N + c] = acc[wi][wj][i][j];
+            C[C_batch_off + r * N + c] = acc[wi][wj][i][j];
           }
         }
       }
@@ -161,10 +165,28 @@ __global__ void matmul_kernel(const scalar_t *__restrict__ A, const scalar_t *__
   }
 }
 
+static std::pair<bool, bool> verify_contiguity(const Tensor &a, const Tensor &b) {
+  int AS = a.shape().size();
+  int BS = b.shape().size();
+
+  bool a_contig = a.is_contiguous();
+  bool b_contig = b.is_contiguous();
+  if (a_contig && b_contig) {
+    return {false, false};
+  }
+
+  bool a_transp = (a.strides()[AS - 2] == 1 && a.strides()[AS - 1] == a.shape()[AS - 2]);
+  bool b_transp = (b.strides()[BS - 2] == 1 && b.strides()[BS - 1] == b.shape()[BS - 2]);
+  if ((!a_contig && !a_transp) || (!b_contig && !b_transp)) {
+    throw std::invalid_argument("matmul cuda: Passed in tensors are non "
+                                "contiguous and cant be treated as transposes");
+  }
+
+  return {a_transp, b_transp};
+}
+
 Tensor matmul(const Tensor &a, const Tensor &b, int64_t B, int64_t M, int64_t K, int64_t N) {
   assert(a.dtype() == b.dtype());
-  assert(a.shape().size() == 2 && b.shape().size() == 2);
-  assert(a.shape()[1] == b.shape()[0]);
   assert(a.device() == Device::CUDA);
 
   Tensor out({B, M, N}, a.dtype(), a.device());
@@ -172,8 +194,8 @@ Tensor matmul(const Tensor &a, const Tensor &b, int64_t B, int64_t M, int64_t K,
   dim3 grid((N + 127) / 128, (M + 127) / 128, B);
   dim3 block(128);
 
-  bool at = !a.is_contiguous();
-  bool bt = !b.is_contiguous();
+  // Check for contiguousness
+  auto [at, bt] = verify_contiguity(a, b);
 
   DISPATCH_OP(a.dtype(), [&] {
     if (at && bt) {

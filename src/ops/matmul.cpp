@@ -25,22 +25,13 @@ Tensor cpu_matmul(const Tensor &a, const Tensor &b, Tensor &out, int64_t B, int6
 Tensor matmul(const Tensor &a, const Tensor &b, int64_t B, int64_t M, int64_t K, int64_t N) {
   assert(a.dtype() == b.dtype());
 
-  Tensor a_l = a;
-  Tensor b_l = b;
-  if (!a.is_contiguous()) {
-    a_l = a.contiguous();
-  }
+  // Reshape garuantees contiguity
+  Tensor T_A = a.reshape({B, M, K});
+  Tensor T_B = b.reshape({B, K, N});
 
-  if (!b.is_contiguous()) {
-    b_l = b.contiguous();
-  }
+  Tensor out = Tensor::zeros({B, M, N}, a.dtype(), CPU);
 
-  a_l = a_l.reshape({B, M, K});
-  b_l = b_l.reshape({B, K, N});
-
-  Tensor out = Tensor::zeros({B, M, K}, a.dtype(), a.device());
-
-  DISPATCH_OP(a.dtype(), [&] { cpu_matmul<scalar_t>(a_l, b_l, out, B, M, K, N); });
+  DISPATCH_OP(a.dtype(), [&] { cpu_matmul<scalar_t>(T_A, T_B, out, B, M, K, N); });
   return out;
 }
 } // namespace cpu

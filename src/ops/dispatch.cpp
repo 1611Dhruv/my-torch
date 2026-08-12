@@ -86,10 +86,12 @@ Tensor matmul(const Tensor &a, const Tensor &b) {
   for (auto b : BATCH)
     B *= b;
 
-  if (a.device() == CUDA)
-    return cuda::matmul(a, b, B, M, K, N);
-  else
-    return cpu::matmul(a, b, B, M, K, N);
+  auto out_shape = BATCH;
+  out_shape.push_back(M);
+  out_shape.push_back(N);
+
+  auto output = (a.device() == CUDA) ? cuda::matmul(a, b, B, M, K, N) : cpu::matmul(a, b, B, M, K, N);
+  return output.reshape(out_shape);
 }
 
 } // namespace torch

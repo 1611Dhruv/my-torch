@@ -33,10 +33,19 @@ using Shape = std::vector<int64_t>;
 
 // Deterministic, varied, small-integer data (range [-4, 4]) over flat index.
 // Negatives included so sign mistakes in the kernel don't slip through.
+//
+// The flat index is hashed rather than used directly. A plain `p % 9` makes
+// accidentally *symmetric* square matrices: for an RxR matrix, element (i,j)
+// is at p = i*R + j, so `p % 9` depends only on (i*R + j) % 9 -- and whenever
+// R % 9 == 1 (R = 64, 100, 190, ...) that collapses to (i + j) % 9, which is
+// symmetric in i and j. A transposed operand would then be indistinguishable
+// from a contiguous one and a broken transpose path would silently pass.
 static std::vector<float> gen(int64_t n) {
   std::vector<float> v(n);
-  for (int64_t p = 0; p < n; ++p)
-    v[p] = static_cast<float>((p % 9) - 4);
+  for (int64_t p = 0; p < n; ++p) {
+    uint32_t h = static_cast<uint32_t>(p) * 2654435761u; // Knuth multiplicative
+    v[p] = static_cast<float>(static_cast<int32_t>(h % 9u) - 4);
+  }
   return v;
 }
 
