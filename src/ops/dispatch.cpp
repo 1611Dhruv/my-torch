@@ -11,19 +11,37 @@ Tensor elementwise_binary_dispatch(const Tensor &a, const Tensor &b, CpuFn cpu_o
     throw std::invalid_argument("elementwise dispatch: tensors should have the same dtype, casting not supported yet");
   }
 
-  if (a.shape() != b.shape()) {
-    throw std::invalid_argument("elementwise dispatch: tensors must have the same shape");
-  }
-
   if (a.device() != b.device()) {
     throw std::invalid_argument(
         "elementwise dispatch: tensor device mismatch"); // TODO: implement data transfer instead of throwing
   }
 
+  int64_t adim = a.shape().size();
+  int64_t bdim = b.shape().size();
+  int64_t ndim = std::max(adim, bdim);
+  std::vector<int64_t> target_shape(ndim, 1);
+
+  int64_t i = adim - 1;
+  int64_t j = bdim - 1;
+  int64_t k = std::max(i, j);
+
+  while (i >= 0 && j >= 0) {
+    target_shape[k--] = std::max(a.shape()[i--], b.shape()[j--]);
+  }
+
+  while (i >= 0)
+    target_shape[k--] = a.shape()[i--];
+
+  while (j >= 0)
+    target_shape[k--] = b.shape()[j--];
+
+  Tensor _a = a.broadcast_to(target_shape);
+  Tensor _b = b.broadcast_to(target_shape);
+
   if (a.device() == CUDA)
-    return cuda_op(a, b);
+    return cuda_op(_a, _b);
   else
-    return cpu_op(a, b);
+    return cpu_op(_a, _b);
 }
 
 Tensor add(const Tensor &a, const Tensor &b) { return elementwise_binary_dispatch(a, b, cpu::add, cuda::add); }

@@ -144,15 +144,21 @@ Tensor Tensor::broadcast_to(std::vector<int64_t> target) const {
       new_strides[j] = _strides[i];
     } else if (target[j] < 1) {
       throw std::invalid_argument("Could not broadcast as target dimension is < 1 & not -1");
-    } else if (_shape[i] == 1) {
-      new_strides[j] = 0;
     } else if (_shape[i] == target[j]) {
       new_strides[j] = _strides[i];
+    } else if (_shape[i] == 1) {
+      new_strides[j] = 0;
     } else {
       throw std::invalid_argument("Could not broadcast as the dimensions dont match");
     }
     i--;
     j--;
+  }
+
+  while (j >= 0) {
+    if (target[j--] <= 0) {
+      throw std::invalid_argument("Could not broad cast with starting target");
+    }
   }
 
   return Tensor(_storage, target, new_strides, _offset, _dtype);
@@ -175,7 +181,7 @@ Tensor Tensor::operator[](int64_t i) const {
     new_strides[j] = _strides[j + 1];
   }
 
-  return Tensor(_storage, new_shape, new_strides, i * _strides[0], _dtype);
+  return Tensor(_storage, new_shape, new_strides, _offset + i * _strides[0], _dtype);
 }
 
 // Metadata Accessors

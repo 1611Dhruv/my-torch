@@ -93,39 +93,18 @@ __global__ void unary_kernel_strided(const scalar_t *a, scalar_t *out, int64_t n
 template <typename Op> Tensor elementwise_binary_wrapper(const Tensor &a, const Tensor &b, Op op) {
   assert(a.dtype() == b.dtype());
 
-  int64_t adim = a.shape().size();
-  int64_t bdim = b.shape().size();
-  int64_t ndim = std::max(adim, bdim);
-  std::vector<int64_t> target_shape(ndim, 1);
-
-  int64_t i = adim - 1;
-  int64_t j = bdim - 1;
-  int64_t k = std::max(i, j);
-
-  while (i >= 0 && j >= 0) {
-    target_shape[k--] = std::max(a.shape()[i--], b.shape()[j--]);
-  }
-
-  while (i >= 0)
-    target_shape[k--] = a.shape()[i--];
-
-  while (j >= 0)
-    target_shape[k--] = b.shape()[j--];
-
-  Tensor _a = a.broadcast_to(target_shape);
-  Tensor _b = b.broadcast_to(target_shape);
-
-  int64_t n = _a.numel();
+  int64_t n = a.numel();
+  const auto &shape = a.shape();
   int threads = 256;
   int64_t blocks = (n + threads - 1) / threads;
-  Tensor out(target_shape, a.dtype(), a.device());
+  Tensor out(shape, a.dtype(), a.device());
 
-  if (!_a.is_contiguous() || !_b.is_contiguous()) {
-    const auto &stride_a = _a.strides();
-    const auto &stride_b = _b.strides();
+  if (!a.is_contiguous() || !b.is_contiguous()) {
+    const auto &stride_a = a.strides();
+    const auto &stride_b = b.strides();
 
     // Max we support is 8 dims for now, if you need more you seem to have issues....
-    if (target_shape.size() > MAX_DIM) {
+    if (shape.size() > MAX_DIM) {
       std::ostringstream oss;
       oss << "cuda binary: support only maximum of " << MAX_DIM << " dim shapes";
       throw std::invalid_argument(oss.str());
@@ -133,21 +112,21 @@ template <typename Op> Tensor elementwise_binary_wrapper(const Tensor &a, const 
 
     // Populate the Stride Op
     BinaryStridedDims stride;
-    stride.ndim = target_shape.size();
+    stride.ndim = shape.size();
     for (int64_t i = 0; i < stride.ndim; i++) {
-      stride.shape[i] = target_shape[i];
+      stride.shape[i] = shape[i];
       stride.a_strides[i] = stride_a[i];
       stride.b_strides[i] = stride_b[i];
     }
-    DISPATCH_OP(_a.dtype(), [&] {
-      binary_kernel_strided<scalar_t><<<blocks, threads>>>(_a.data_ptr<scalar_t>(), _b.data_ptr<scalar_t>(),
+    DISPATCH_OP(a.dtype(), [&] {
+      binary_kernel_strided<scalar_t><<<blocks, threads>>>(a.data_ptr<scalar_t>(), b.data_ptr<scalar_t>(),
                                                            out.data_ptr<scalar_t>(), n, op, stride);
     });
   } else {
     // Both are contiguous so just directly use quick kernel
-    DISPATCH_OP(_a.dtype(), [&] {
+    DISPATCH_OP(a.dtype(), [&] {
       binary_kernel<scalar_t>
-          <<<blocks, threads>>>(_a.data_ptr<scalar_t>(), _b.data_ptr<scalar_t>(), out.data_ptr<scalar_t>(), n, op);
+          <<<blocks, threads>>>(a.data_ptr<scalar_t>(), b.data_ptr<scalar_t>(), out.data_ptr<scalar_t>(), n, op);
     });
   }
 
