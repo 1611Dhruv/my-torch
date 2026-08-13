@@ -149,12 +149,11 @@ Tensor matmul(const Tensor &a, const Tensor &b) {
 
 // reductions
 template <typename CpuFn, typename CudaFn>
-Tensor reduce(Tensor &a, const std::vector<int64_t> &dims, bool keep_dim, CpuFn cpu_op, CudaFn cuda_op) {
+Tensor reduce(const Tensor &a, std::vector<int64_t> &dims, bool keep_dim, CpuFn cpu_op, CudaFn cuda_op) {
   // CPU OP and Cuda op always keeps dims
 
-  auto dims_cp = dims;
   std::vector<int64_t> target_shape = a.shape();
-  for (auto &dim : dims_cp) {
+  for (auto &dim : dims) {
     if (dim < 0)
       dim += a.ndim();
     if (dim < 0) {
@@ -164,12 +163,12 @@ Tensor reduce(Tensor &a, const std::vector<int64_t> &dims, bool keep_dim, CpuFn 
   }
 
   // Need this for the subsequent things
-  std::sort(dims_cp.begin(), dims_cp.end());
-  dims_cp.erase(std::unique(dims_cp.begin(), dims_cp.end()), dims_cp.end());
+  std::sort(dims.begin(), dims.end());
+  dims.erase(std::unique(dims.begin(), dims.end()), dims.end());
 
   Tensor out(target_shape, a.dtype(), a.device());
 
-  Tensor result = (a.device() == CPU) ? cpu_op(a, out, dims_cp) : cuda_op(a, out, dims_cp);
+  Tensor result = (a.device() == CPU) ? cpu_op(a, out, dims) : cuda_op(a, out, dims);
   if (!keep_dim) {
     throw std::logic_error("reduce: keep_dim = false not implemented yet");
     // result.squeeze(dims); // TODO Uncomment after squeeze is implemented
@@ -177,7 +176,7 @@ Tensor reduce(Tensor &a, const std::vector<int64_t> &dims, bool keep_dim, CpuFn 
   return result;
 }
 
-Tensor sum(Tensor &a, const std::vector<int64_t> &dims, bool keep_dim) {
+Tensor sum(const Tensor &a, std::vector<int64_t> dims, bool keep_dim) {
   return reduce(a, dims, keep_dim, cpu::sum, cuda::sum);
 }
 

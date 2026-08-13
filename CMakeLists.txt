@@ -24,6 +24,8 @@ add_library(mytorch
   src/ops/matmul.cu
   src/ops/matmul.cpp
   src/ops/dispatch.cpp
+  src/ops/reductions.cpp
+  src/ops/reductions.cu
   src/autograd/functional.cpp
   #  src/data/mnist.cpp
 )

@@ -4,7 +4,7 @@
 namespace torch {
 namespace cuda {
 
-Tensor sum(Tensor &a, const std::vector<int64_t> &dims, bool keep_dim) { return a; }
+Tensor sum(const Tensor &a, Tensor &out, const std::vector<int64_t> &dims) { return out; }
 } // namespace cuda
 
 } // namespace torch

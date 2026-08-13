@@ -71,7 +71,7 @@ Tensor reduce(const Tensor &a, Tensor &out, const std::vector<int64_t> reduce_di
   return out;
 }
 
-Tensor sum(const Tensor &a, Tensor &out, const std::vector<int64_t> dims) {
+Tensor sum(const Tensor &a, Tensor &out, const std::vector<int64_t> &dims) {
   DISPATCH_OP(a.dtype(),
               [&]() { reduce(a, out, dims, [&](scalar_t x, scalar_t y) { return x + y; }, static_cast<scalar_t>(0)); });
   return out;

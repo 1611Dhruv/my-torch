@@ -204,7 +204,7 @@ bool Tensor::is_contiguous() const {
 Tensor Tensor::zeros(std::vector<int64_t> shape, DType dtype, Device device) {
   Tensor t(shape, dtype, device);
   if (device == CUDA) {
-    DISPATCH_OP(t.dtype(), [&t]() { CUDA_CHECK(cudaMemset(t.data_ptr<size_t>(), 0, sizeof(scalar_t) * t.numel())); });
+    CUDA_CHECK(cudaMemset(t._storage.get(), 0, t._storage.size()));
   } else {
     std::memset(t._storage.get(), 0, t._storage.size());
   }

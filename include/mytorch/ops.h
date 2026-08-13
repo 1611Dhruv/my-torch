@@ -17,16 +17,13 @@ Tensor cos(const Tensor &a);
 Tensor exp(const Tensor &a);
 
 // Reductions
-Tensor sum(const Tensor &a, const std::vector<int64_t> dims, bool keep_dim = true);
-Tensor max(const Tensor &a, const std::vector<int64_t> dims, bool keep_dim = true);
-Tensor mean(const Tensor &a, const std::vector<int64_t> dims, bool keep_dim = true);
+Tensor sum(const Tensor &a, std::vector<int64_t> dims, bool keep_dim = true);
 /*
  NOTE: Future
-Tensor sin(const Tensor &a);
-Tensor cos(const Tensor &a);
-Tensor exp(const Tensor &a);
-Tensor matmul(const Tensor &a, const Tensor &b);
 Tensor ln(Tensor &a);
+
+Tensor max(const Tensor &a, const std::vector<int64_t> dims, bool keep_dim = true);
+Tensor mean(const Tensor &a, const std::vector<int64_t> dims, bool keep_dim = true);
 */
 
 namespace cpu {
@@ -46,7 +43,7 @@ Tensor exp(const Tensor &a, Tensor &out);
 
 // Reductions
 // NOTE: Always keeps dim = true
-Tensor sum(const Tensor &a, Tensor &out, std::vector<int64_t> dims);
+Tensor sum(const Tensor &a, Tensor &out, const std::vector<int64_t> &dims);
 
 /*
  NOTE: Future
@@ -76,7 +73,7 @@ Tensor contiguous(const Tensor &a, Tensor &out);
 
 // Reductions
 // NOTE: Always keeps dim = true
-Tensor sum(const Tensor &a, Tensor &out, std::vector<int64_t> dims);
+Tensor sum(const Tensor &a, Tensor &out, const std::vector<int64_t> &dims);
 
 /*
  NOTE: Future
