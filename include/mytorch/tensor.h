@@ -48,6 +48,7 @@ public:
   static Tensor ones_like(const Tensor &other);
   static Tensor ones(std::vector<int64_t> shape, DType dtype, Device device);
   static Tensor rand(std::vector<int64_t> shape, Device device);
+  Tensor broadcast_to(std::vector<int64_t> shape) const;
 
   /*
    NOTE: Future maybe
@@ -55,7 +56,6 @@ public:
   Tensor slice(int64_t dim, int64_t start, int64_t end) const;
   Tensor squeeze() const;
   Tensor unsqueeze() const;
-  Tensor broadcast_to(std::vector<int64_t> shape) const;
 
   int64_t nbytes() const;
  */

@@ -126,6 +126,38 @@ Tensor Tensor::contiguous() const {
   return out;
 }
 
+Tensor Tensor::broadcast_to(std::vector<int64_t> target) const {
+  int64_t target_dim = target.size();
+  int64_t src_dim = _shape.size();
+
+  if (target_dim < src_dim) {
+    throw std::invalid_argument("Cannot broadcast from a higher to lower dim");
+  }
+
+  int i = src_dim - 1;
+  int j = target_dim - 1;
+
+  std::vector<int64_t> new_strides(target_dim, 0);
+  while (i >= 0 && j >= 0) {
+    if (target[j] == -1) {
+      target[j] = _shape[i];
+      new_strides[j] = _strides[i];
+    } else if (target[j] < 1) {
+      throw std::invalid_argument("Could not broadcast as target dimension is < 1 & not -1");
+    } else if (_shape[i] == 1) {
+      new_strides[j] = 0;
+    } else if (_shape[i] == target[j]) {
+      new_strides[j] = _strides[i];
+    } else {
+      throw std::invalid_argument("Could not broadcast as the dimensions dont match");
+    }
+    i--;
+    j--;
+  }
+
+  return Tensor(_storage, target, new_strides, _offset, _dtype);
+}
+
 // Access Ops
 Tensor Tensor::operator[](int64_t i) const {
   int64_t N = static_cast<int64_t>(_shape.size());
