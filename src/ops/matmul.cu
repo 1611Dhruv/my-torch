@@ -185,11 +185,9 @@ static std::pair<bool, bool> verify_contiguity(const Tensor &a, const Tensor &b)
   return {a_transp, b_transp};
 }
 
-Tensor matmul(const Tensor &a, const Tensor &b, int64_t B, int64_t M, int64_t K, int64_t N) {
+Tensor matmul(const Tensor &a, const Tensor &b, Tensor &out, int64_t B, int64_t M, int64_t K, int64_t N) {
   assert(a.dtype() == b.dtype());
   assert(a.device() == Device::CUDA);
-
-  Tensor out({B, M, N}, a.dtype(), a.device());
 
   dim3 grid((N + 127) / 128, (M + 127) / 128, B);
   dim3 block(128);

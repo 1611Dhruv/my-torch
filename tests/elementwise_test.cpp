@@ -83,7 +83,7 @@ TEST(ElementwiseTest, AddSameShapeContiguous) {
   fill(a, vals_a);
   fill(b, vals_b);
 
-  Tensor out = torch::cpu::add(a, b);
+  Tensor out = torch::add(a, b);
   std::vector<float> expected = {7, 7, 7, 7, 7, 7};
   expect_close(out, expected);
 }
@@ -104,7 +104,7 @@ TEST(ElementwiseTest, AddNonDivisibleShape) {
   fill(a, vals_a);
   fill(b, vals_b);
 
-  Tensor out = torch::cpu::add(a, b);
+  Tensor out = torch::add(a, b);
   std::vector<float> expected(N, N - 1);
   expect_close(out, expected);
 }
@@ -113,14 +113,14 @@ TEST(ElementwiseTest, AddZeroDimScalars) {
   // ndim==0 tensors: leaf hit immediately, exactly one add. Edge case.
   Tensor a({});
   Tensor b({});
-  ASSERT_NO_THROW(torch::cpu::add(a, b));
+  ASSERT_NO_THROW(torch::add(a, b));
 }
 
 // --- the stride/offset bugs: these are the ones that matter ----------------
 
 TEST(ElementwiseTest, AddTransposedInputMatchesContiguous) {
   // b = something.transpose(0,1): non-contiguous but same shape as a.
-  // Compare add(a, b) against add(a, b.contiguous()). Hits the slow path.
+  // Compare torch::add(a, b) against torch::add(a, b.contiguous()). Hits the slow path.
   Tensor a({3, 2});
   Tensor b({2, 3});
 
@@ -135,7 +135,7 @@ TEST(ElementwiseTest, AddTransposedInputMatchesContiguous) {
    * 5 6   3 6
    */
 
-  Tensor out = torch::cpu::add(a, b.transpose(-1, -2));
+  Tensor out = torch::add(a, b.transpose(-1, -2));
   EXPECT_EQ(out.shape(), std::vector<int64_t>({3, 2}));
   std::vector<float> vals_want = {2, 6, 5, 9, 8, 12};
   expect_close(out, vals_want);
@@ -157,7 +157,7 @@ TEST(ElementwiseTest, AddBothInputsNonContiguous) {
   fill(a, vals_a);
   fill(b, vals_b);
 
-  Tensor out = torch::cpu::add(a.transpose(-1, -2), b.transpose(-1, -2));
+  Tensor out = torch::add(a.transpose(-1, -2), b.transpose(-1, -2));
   EXPECT_EQ(out.shape(), std::vector<int64_t>({3, 5, 9, 7}));
 
   std::vector<float> expected(N, N - 1);
@@ -186,8 +186,8 @@ TEST(ElementwiseTest, AddInputWithNonzeroOffset) {
   Tensor lhs = a[2].transpose(-1, -2); // offset != 0 AND non-contiguous
   Tensor rhs = b[2].transpose(-1, -2);
 
-  Tensor got = torch::cpu::add(lhs, rhs);                              // slow path
-  Tensor oracle = torch::cpu::add(lhs.contiguous(), rhs.contiguous()); // fast path
+  Tensor got = torch::add(lhs, rhs);                              // slow path
+  Tensor oracle = torch::add(lhs.contiguous(), rhs.contiguous()); // fast path
 
   EXPECT_TRUE(got.is_contiguous());
   EXPECT_EQ(got.shape(), std::vector<int64_t>({5, 9, 7}));
@@ -205,7 +205,7 @@ TEST(ElementwiseTest, AddDoesNotMutateInputs) {
   fill(a, vals_a);
   fill(b, vals_b);
 
-  Tensor out = torch::cpu::add(a, b);
+  Tensor out = torch::add(a, b);
 
   // add writes only into a fresh `out`; the operands stay exactly as filled.
   expect_close(a, vals_a);
@@ -216,7 +216,7 @@ TEST(ElementwiseTest, AddOutputIsFreshContiguous) {
   // out.is_contiguous() == true, and out.data_ptr != a.data_ptr (no aliasing).
   Tensor a = Tensor::zeros({2, 3}, DType::Float32, CPU);
   Tensor b = Tensor::zeros({2, 3}, DType::Float32, CPU);
-  Tensor out = torch::cpu::add(a, b);
+  Tensor out = torch::add(a, b);
   EXPECT_TRUE(out.is_contiguous());
   EXPECT_NE(a.data_ptr<float>(), out.data_ptr<float>());
   EXPECT_NE(b.data_ptr<float>(), out.data_ptr<float>());
@@ -277,18 +277,21 @@ static std::vector<float> cuda_to_host(const Tensor &t) {
 // transposed (non-contiguous) view, and assert they agree. The CPU strided path
 // is already tested above, so it's the trusted reference; we never hand-compute
 // expected values for the GPU strided kernel.
+//
+// One op, not two: the dispatcher picks the backend from the tensors' device,
+// so the only difference between the two runs is where the data lives.
 using BinaryOp = Tensor (*)(const Tensor &, const Tensor &);
-static void expect_cuda_matches_cpu_transposed(BinaryOp cpu_op, BinaryOp gpu_op, const Shape &shape,
-                                               const std::vector<float> &va, const std::vector<float> &vb) {
+static void expect_cuda_matches_cpu_transposed(BinaryOp op, const Shape &shape, const std::vector<float> &va,
+                                               const std::vector<float> &vb) {
   Tensor ca(shape);
   Tensor cb(shape);
   fill(ca, va);
   fill(cb, vb);
-  Tensor cpu_out = cpu_op(ca.transpose(-1, -2), cb.transpose(-1, -2));
+  Tensor cpu_out = op(ca.transpose(-1, -2), cb.transpose(-1, -2));
 
   Tensor ga = cuda_from(shape, va);
   Tensor gb = cuda_from(shape, vb);
-  Tensor gpu_out = gpu_op(ga.transpose(-1, -2), gb.transpose(-1, -2));
+  Tensor gpu_out = op(ga.transpose(-1, -2), gb.transpose(-1, -2));
 
   ASSERT_EQ(cpu_out.shape(), gpu_out.shape());
   std::vector<float> got = cuda_to_host(gpu_out);
@@ -315,7 +318,7 @@ TEST(ElementwiseCudaTest, AddsElementwise) {
   CUDA_CHECK(cudaMemcpy(a.data_ptr<float>(), ha.data(), n * sizeof(float), cudaMemcpyHostToDevice));
   CUDA_CHECK(cudaMemcpy(b.data_ptr<float>(), hb.data(), n * sizeof(float), cudaMemcpyHostToDevice));
 
-  Tensor c = torch::cuda::add(a, b);
+  Tensor c = torch::add(a, b);
 
   std::vector<float> hc(n);
   CUDA_CHECK(cudaMemcpy(hc.data(), c.data_ptr<float>(), n * sizeof(float), cudaMemcpyDeviceToHost));
@@ -338,7 +341,7 @@ TEST(ElementwiseCudaTest, SubsElementwise) {
   CUDA_CHECK(cudaMemcpy(a.data_ptr<float>(), ha.data(), n * sizeof(float), cudaMemcpyHostToDevice));
   CUDA_CHECK(cudaMemcpy(b.data_ptr<float>(), hb.data(), n * sizeof(float), cudaMemcpyHostToDevice));
 
-  Tensor c = torch::cuda::sub(a, b);
+  Tensor c = torch::sub(a, b);
 
   std::vector<float> hc(n);
   CUDA_CHECK(cudaMemcpy(hc.data(), c.data_ptr<float>(), n * sizeof(float), cudaMemcpyDeviceToHost));
@@ -361,7 +364,7 @@ TEST(ElementwiseCudaTest, MultipliesElementwise) {
   CUDA_CHECK(cudaMemcpy(a.data_ptr<float>(), ha.data(), n * sizeof(float), cudaMemcpyHostToDevice));
   CUDA_CHECK(cudaMemcpy(b.data_ptr<float>(), hb.data(), n * sizeof(float), cudaMemcpyHostToDevice));
 
-  Tensor c = torch::cuda::mult(a, b);
+  Tensor c = torch::mult(a, b);
 
   std::vector<float> hc(n);
   CUDA_CHECK(cudaMemcpy(hc.data(), c.data_ptr<float>(), n * sizeof(float), cudaMemcpyDeviceToHost));
@@ -375,16 +378,16 @@ TEST(ElementwiseCudaTest, MultipliesElementwise) {
 TEST_F(ElementwiseCudaStrided, AddTransposedMatchesCpu) {
   // NOTE: asymmetric data on purpose -- a+b must NOT be constant, or a linear
   // (wrong) read and the correct strided read would both pass.
-  expect_cuda_matches_cpu_transposed(torch::cpu::add, torch::cuda::add, {2, 3}, {1, 2, 3, 4, 5, 6},
+  expect_cuda_matches_cpu_transposed(torch::add, {2, 3}, {1, 2, 3, 4, 5, 6},
                                      {10, 20, 30, 40, 50, 60});
 }
 
 TEST_F(ElementwiseCudaStrided, SubTransposedMatchesCpu) {
-  expect_cuda_matches_cpu_transposed(torch::cpu::sub, torch::cuda::sub, {2, 3}, {1, 2, 3, 4, 5, 6}, {6, 5, 4, 3, 2, 1});
+  expect_cuda_matches_cpu_transposed(torch::sub, {2, 3}, {1, 2, 3, 4, 5, 6}, {6, 5, 4, 3, 2, 1});
 }
 
 TEST_F(ElementwiseCudaStrided, MultTransposedMatchesCpu) {
-  expect_cuda_matches_cpu_transposed(torch::cpu::mult, torch::cuda::mult, {2, 3}, {1, 2, 3, 4, 5, 6},
+  expect_cuda_matches_cpu_transposed(torch::mult, {2, 3}, {1, 2, 3, 4, 5, 6},
                                      {6, 5, 4, 3, 2, 1});
 }
 
@@ -397,5 +400,5 @@ TEST_F(ElementwiseCudaStrided, AddTransposedHighRankMatchesCpu) {
     va[i] = static_cast<float>(i);
     vb[i] = static_cast<float>(2 * i + 1); // not n-i: that makes a+b constant and hides a linear-read bug
   }
-  expect_cuda_matches_cpu_transposed(torch::cpu::add, torch::cuda::add, {3, 5, 7, 9}, va, vb);
+  expect_cuda_matches_cpu_transposed(torch::add, {3, 5, 7, 9}, va, vb);
 }

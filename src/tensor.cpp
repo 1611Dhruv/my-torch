@@ -1,4 +1,5 @@
 #include "mytorch/tensor.h"
+#include "mytorch/cuda_utils.h"
 #include "mytorch/ops.h"
 #include "mytorch/storage.h"
 #include <cassert>
@@ -106,7 +107,8 @@ Tensor Tensor::contiguous() const {
     return *this;
 
   if (device() == CUDA) {
-    return cuda::contiguous(*this);
+    Tensor gathered(_shape, _dtype, device());
+    return cuda::contiguous(*this, gathered);
   }
 
   Tensor out(_shape, _dtype, device());
@@ -201,13 +203,21 @@ bool Tensor::is_contiguous() const {
 // Static factory
 Tensor Tensor::zeros(std::vector<int64_t> shape, DType dtype, Device device) {
   Tensor t(shape, dtype, device);
-  std::memset(t._storage.get(), 0, t._storage.size());
+  if (device == CUDA) {
+    DISPATCH_OP(t.dtype(), [&t]() { CUDA_CHECK(cudaMemset(t.data_ptr<size_t>(), 0, sizeof(scalar_t) * t.numel())); });
+  } else {
+    std::memset(t._storage.get(), 0, t._storage.size());
+  }
   return t;
 }
 
 Tensor Tensor::zeros_like(const Tensor &other) {
   Tensor t(other.shape(), other.dtype(), other.device());
-  std::memset(t._storage.get(), 0, t._storage.size());
+  if (other.device() == CUDA) {
+    CUDA_CHECK(cudaMemset(t._storage.get(), 0, t._storage.size()));
+  } else {
+    std::memset(t._storage.get(), 0, t._storage.size());
+  }
   return t;
 }
 Tensor Tensor::ones_like(const Tensor &other) { return Tensor::ones(other.shape(), other.dtype(), other.device()); }
@@ -215,22 +225,31 @@ Tensor Tensor::ones_like(const Tensor &other) { return Tensor::ones(other.shape(
 Tensor Tensor::ones(std::vector<int64_t> shape, DType dtype, Device device) {
   Tensor t(shape, dtype, device);
   int64_t n = t.numel();
+
+  int64_t nb = t._storage.size();
+  void *host_cp = (device == CPU) ? t._storage.get() : malloc(nb);
+
   switch (dtype) {
   case torch::DType::Float32: {
-    float *p = t.data_ptr<float>();
+    float *p = (float *)host_cp;
     std::fill(p, p + n, 1.0f);
     break;
   }
   case torch::DType::Int32: {
-    int32_t *p = t.data_ptr<int32_t>();
+    int32_t *p = (int32_t *)host_cp;
     std::fill(p, p + n, 1);
     break;
   }
   case torch::DType::UInt8: {
-    uint8_t *p = t.data_ptr<uint8_t>();
+    uint8_t *p = (uint8_t *)host_cp;
     std::fill(p, p + n, uint8_t(1));
     break;
   }
+  }
+
+  if (device == CUDA) {
+    CUDA_CHECK(cudaMemcpy(t._storage.get(), host_cp, nb, cudaMemcpyHostToDevice));
+    free(host_cp);
   }
   return t;
 }
@@ -245,12 +264,19 @@ void manual_seed(uint64_t seed) { rand_generator().seed(seed); }
 Tensor Tensor::rand(std::vector<int64_t> shape, Device device) {
   Tensor t(shape, torch::DType::Float32, device);
   int64_t n = t.numel();
-  float *p = t.data_ptr<float>();
+  int64_t nb = t._storage.size();
+  void *host = (device == CPU) ? t._storage.get() : malloc(nb);
+
+  float *p = static_cast<float *>(host);
   std::uniform_real_distribution<float> dist(0.0f, 1.0f);
   for (int64_t i = 0; i < n; i++) {
     p[i] = dist(rand_generator());
   }
 
+  if (device == CUDA) {
+    CUDA_CHECK(cudaMemcpy(t._storage.get(), host, nb, cudaMemcpyHostToDevice));
+    free(host);
+  }
   return t;
 }
 

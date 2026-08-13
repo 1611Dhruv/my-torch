@@ -140,7 +140,7 @@ static void check_cuda_matmul(int64_t M, int64_t K, int64_t N, bool a_view, bool
                                         << " a_view=" << a_view << " b_view=" << b_view << ")";
 }
 
-// Stage A,B to device, run torch::cuda::matmul, copy the result back to host.
+// Stage A,B to device, run torch::matmul, copy the result back to host.
 static std::vector<float> run_cuda_matmul(const std::vector<float> &hA, const std::vector<float> &hB, int64_t M,
                                           int64_t K, int64_t N) {
   Tensor a({M, K}, DType::Float32, CUDA);

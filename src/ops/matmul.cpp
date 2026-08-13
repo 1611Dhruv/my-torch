@@ -1,5 +1,6 @@
 #include "mytorch/ops.h"
 #include "mytorch/tensor.h"
+#include <algorithm>
 #include <cassert>
 #include <cstdint>
 namespace torch {
@@ -24,16 +25,20 @@ Tensor cpu_matmul(const Tensor &a, const Tensor &b, Tensor &out, int64_t B, int6
   return out;
 }
 
-Tensor matmul(const Tensor &a, const Tensor &b, int64_t B, int64_t M, int64_t K, int64_t N) {
+Tensor matmul(const Tensor &a, const Tensor &b, Tensor &out, int64_t B, int64_t M, int64_t K, int64_t N) {
   assert(a.dtype() == b.dtype());
 
   // Reshape garuantees contiguity
   Tensor T_A = a.reshape({B, M, K});
   Tensor T_B = b.reshape({B, K, N});
 
-  Tensor out = Tensor::zeros({B, M, N}, a.dtype(), CPU);
-
-  DISPATCH_OP(a.dtype(), [&] { cpu_matmul<scalar_t>(T_A, T_B, out, B, M, K, N); });
+  DISPATCH_OP(a.dtype(), [&] {
+    // The inner loop accumulates with +=, so this backend needs a zeroed buffer.
+    // The dispatcher hands out uninitialized memory, so zero it here.
+    scalar_t *o = out.data_ptr<scalar_t>();
+    std::fill(o, o + B * M * N, static_cast<scalar_t>(0));
+    cpu_matmul<scalar_t>(T_A, T_B, out, B, M, K, N);
+  });
   return out;
 }
 } // namespace cpu

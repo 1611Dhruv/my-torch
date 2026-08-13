@@ -90,14 +90,13 @@ __global__ void unary_kernel_strided(const scalar_t *a, scalar_t *out, int64_t n
   out[i] = op(a[a_i]);
 }
 
-template <typename Op> Tensor elementwise_binary_wrapper(const Tensor &a, const Tensor &b, Op op) {
+template <typename Op> Tensor elementwise_binary_wrapper(const Tensor &a, const Tensor &b, Tensor &out, Op op) {
   assert(a.dtype() == b.dtype());
 
   int64_t n = a.numel();
   const auto &shape = a.shape();
   int threads = 256;
   int64_t blocks = (n + threads - 1) / threads;
-  Tensor out(shape, a.dtype(), a.device());
 
   if (!a.is_contiguous() || !b.is_contiguous()) {
     const auto &stride_a = a.strides();
@@ -135,21 +134,19 @@ template <typename Op> Tensor elementwise_binary_wrapper(const Tensor &a, const 
   return out;
 }
 
-Tensor add(const Tensor &a, const Tensor &b) {
-  return elementwise_binary_wrapper(a, b, [] __device__(auto x, auto y) { return x + y; });
+Tensor add(const Tensor &a, const Tensor &b, Tensor &out) {
+  return elementwise_binary_wrapper(a, b, out, [] __device__(auto x, auto y) { return x + y; });
 }
 
-Tensor sub(const Tensor &a, const Tensor &b) {
-  return elementwise_binary_wrapper(a, b, [] __device__(auto x, auto y) { return x - y; });
+Tensor sub(const Tensor &a, const Tensor &b, Tensor &out) {
+  return elementwise_binary_wrapper(a, b, out, [] __device__(auto x, auto y) { return x - y; });
 }
 
-Tensor mult(const Tensor &a, const Tensor &b) {
-  return elementwise_binary_wrapper(a, b, [] __device__(auto x, auto y) { return x * y; });
+Tensor mult(const Tensor &a, const Tensor &b, Tensor &out) {
+  return elementwise_binary_wrapper(a, b, out, [] __device__(auto x, auto y) { return x * y; });
 }
 
-template <typename Op> Tensor elementwise_unary_wrapper(const Tensor &a, Op op) {
-  Tensor out(a.shape(), a.dtype(), a.device());
-
+template <typename Op> Tensor elementwise_unary_wrapper(const Tensor &a, Tensor &out, Op op) {
   int64_t n = a.numel();
   int threads = 256;
   int64_t blocks = (n + threads - 1) / threads;
@@ -184,24 +181,24 @@ template <typename Op> Tensor elementwise_unary_wrapper(const Tensor &a, Op op) 
   return out;
 }
 
-Tensor neg(const Tensor &a) {
-  return elementwise_unary_wrapper(a, [] __device__(auto x) { return -x; });
+Tensor neg(const Tensor &a, Tensor &out) {
+  return elementwise_unary_wrapper(a, out, [] __device__(auto x) { return -x; });
 }
 
-Tensor sin(const Tensor &a) {
-  return elementwise_unary_wrapper(a, [] __device__(auto x) { return sinf(x); });
+Tensor sin(const Tensor &a, Tensor &out) {
+  return elementwise_unary_wrapper(a, out, [] __device__(auto x) { return sinf(x); });
 }
 
-Tensor cos(const Tensor &a) {
-  return elementwise_unary_wrapper(a, [] __device__(auto x) { return cosf(x); });
+Tensor cos(const Tensor &a, Tensor &out) {
+  return elementwise_unary_wrapper(a, out, [] __device__(auto x) { return cosf(x); });
 }
 
-Tensor exp(const Tensor &a) {
-  return elementwise_unary_wrapper(a, [] __device__(auto x) { return expf(x); });
+Tensor exp(const Tensor &a, Tensor &out) {
+  return elementwise_unary_wrapper(a, out, [] __device__(auto x) { return expf(x); });
 }
 
-Tensor contiguous(const Tensor &a) {
-  return elementwise_unary_wrapper(a, [] __device__(auto x) { return x; });
+Tensor contiguous(const Tensor &a, Tensor &out) {
+  return elementwise_unary_wrapper(a, out, [] __device__(auto x) { return x; });
 }
 
 } // namespace cuda

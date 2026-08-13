@@ -325,8 +325,8 @@ TEST(CudaContiguousTest, StridedUnaryOpMatchesReference) {
   // non-contiguous input. Check one against the materialize-then-op route.
   const int64_t R = 4, C = 6;
   Tensor t = cuda_from({R, C}, seq(R * C));
-  Tensor strided = torch::cuda::neg(t.transpose(0, 1));
-  Tensor materialized = torch::cuda::neg(t.transpose(0, 1).contiguous());
+  Tensor strided = torch::neg(t.transpose(0, 1));
+  Tensor materialized = torch::neg(t.transpose(0, 1).contiguous());
   ASSERT_EQ(strided.shape(), materialized.shape());
   EXPECT_EQ(host_of(strided), host_of(materialized));
 }
