@@ -25,13 +25,7 @@ public:
 
   const std::optional<Tensor> &grad() const { return _grad; }
   bool has_grad() const { return _grad.has_value(); }
-  void accumulate_grad(const Tensor &g) {
-    if (!_grad) {
-      _grad = g;
-    } else {
-      _grad = torch::add(*_grad, g);
-    }
-  }
+  void accumulate_grad(const Tensor &g);
 
   void backward();
 

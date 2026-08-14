@@ -5,6 +5,25 @@
 namespace torch {
 namespace autograd {
 
+void Variable::accumulate_grad(const Tensor &g) {
+  std::vector<int64_t> reduce_along;
+  int64_t offset = g.ndim() - _t.ndim();
+  for (int64_t i = 0; i < offset; i++) {
+    reduce_along.push_back(i);
+  }
+  for (int64_t i = 0; i < _t.ndim(); i++) {
+    if (_t.shape()[i] == 1 && g.shape()[i + offset] != 1) {
+      reduce_along.push_back(i + offset);
+    }
+  }
+
+  Tensor ng = (!reduce_along.empty() ? torch::sum(g, reduce_along, true) : g).reshape(_t.shape());
+  if (!_grad) {
+    _grad = ng;
+  } else {
+    _grad = torch::add(*_grad, ng);
+  }
+}
 void Variable::backward() {
   // Topo sort and then accumulate
 

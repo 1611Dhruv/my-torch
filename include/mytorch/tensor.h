@@ -21,6 +21,7 @@ public:
   Tensor reshape(std::vector<int64_t> new_shape) const;
   Tensor transpose(int64_t dim1, int64_t dim2) const;
   Tensor contiguous() const;
+  Tensor squeeze(std::vector<int64_t> dims) const;
 
   // TODO: Need a to method to move across things
   // Tensor to(DType type, Device dev) const;
@@ -54,7 +55,6 @@ public:
    NOTE: Future maybe
   Tensor permute(std::vector<int64_t> dim_order) const;
   Tensor slice(int64_t dim, int64_t start, int64_t end) const;
-  Tensor squeeze() const;
   Tensor unsqueeze() const;
 
   int64_t nbytes() const;

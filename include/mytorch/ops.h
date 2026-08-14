@@ -70,6 +70,7 @@ Tensor sin(const Tensor &a, Tensor &out);
 Tensor cos(const Tensor &a, Tensor &out);
 Tensor exp(const Tensor &a, Tensor &out);
 Tensor contiguous(const Tensor &a, Tensor &out);
+template <typename scalar_t> Tensor fill(const Tensor &a, Tensor &out, scalar_t t);
 
 // Reductions
 // NOTE: Always keeps dim = true

@@ -28,6 +28,10 @@ Tensor reduce(const Tensor &a, Tensor &out, const std::vector<int64_t> reduce_di
   auto incr = [&a, &out, &out_off](const std::vector<int64_t> &dim, std::vector<int64_t> &idx, int64_t &off, bool &done,
                                    bool update_out = false) {
     int d = dim.size() - 1;
+    if (d < 0) {
+      done = true;
+      return;
+    }
     idx[d]++;
     off += a.strides()[dim[d]];
     if (update_out) {

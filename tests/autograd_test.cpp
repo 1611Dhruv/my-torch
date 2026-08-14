@@ -158,3 +158,98 @@ TEST(AutogradCombined, BigDiamond) {
   expect_close(to_vec(e->grad().value()), (std::vector<float>{1.0, 1.0, 1.0}));
   expect_close(to_vec(x->grad().value()), (std::vector<float>{1.0, -0.2, -0.8}));
 }
+
+// --- broadcast gradients ----------------------------------------------------
+//
+// Once elementwise ops broadcast, an operand's gradient no longer has the same
+// shape as the operand: the output grad has to be SUMMED back down to the
+// operand's shape (accumulate_grad does this). Broadcasting stretched a value
+// across several outputs, so every one of those outputs contributes to it.
+//
+// Two distinct things get undone, and the bugs live in the second:
+//   rank-only   {4} vs {3,4}     -- a whole leading axis was prepended
+//   size-1      {1,4} vs {3,4}   -- an existing axis was expanded, rank equal
+// The nasty case is BOTH at once ({1,4} vs {B,T,4}), because the axis indices
+// then live in two different spaces and off-by-`offset` errors are silent.
+
+// A leaf of arbitrary shape, filled from flat row-major values.
+static std::shared_ptr<Variable> leafnd(const std::vector<int64_t> &shape, const std::vector<float> &vals) {
+  Tensor t(shape, torch::DType::Float32, torch::CPU);
+  EXPECT_EQ(static_cast<int64_t>(vals.size()), t.numel());
+  std::copy(vals.begin(), vals.end(), t.data_ptr<float>());
+  return Variable::leaf(t);
+}
+
+static std::vector<float> ones(int64_t n) { return std::vector<float>(n, 1.0f); }
+
+TEST(AutogradBroadcast, RankOnlyBroadcastSumsGradToOperandShape) {
+  // {3,4} + {4}: the bare vector is reused across all 3 rows, so each of its
+  // entries receives 3 units of gradient.
+  auto x = leafnd({3, 4}, ones(12));
+  auto v = leafnd({4}, ones(4));
+
+  auto y = ag::add(x, v);
+  ASSERT_EQ(y->data().shape(), std::vector<int64_t>({3, 4}));
+  y->backward();
+
+  ASSERT_TRUE(v->grad().has_value());
+  EXPECT_EQ(v->grad()->shape(), std::vector<int64_t>({4}));
+  expect_close(to_vec(v->grad().value()), (std::vector<float>{3, 3, 3, 3}));
+
+  // The un-broadcast operand is untouched: same shape, all ones.
+  EXPECT_EQ(x->grad()->shape(), std::vector<int64_t>({3, 4}));
+  expect_close(to_vec(x->grad().value()), ones(12));
+}
+
+TEST(AutogradBroadcast, SizeOneAxisSumsGradToOperandShape) {
+  // {3,4} + {1,4}: same rank, axis 0 expanded 1 -> 3. offset == 0 here, so
+  // this isolates the size-1 half of the rule.
+  auto x = leafnd({3, 4}, ones(12));
+  auto b = leafnd({1, 4}, ones(4));
+
+  auto y = ag::add(x, b);
+  ASSERT_EQ(y->data().shape(), std::vector<int64_t>({3, 4}));
+  y->backward();
+
+  ASSERT_TRUE(b->grad().has_value());
+  EXPECT_EQ(b->grad()->shape(), std::vector<int64_t>({1, 4}));
+  expect_close(to_vec(b->grad().value()), (std::vector<float>{3, 3, 3, 3}));
+}
+
+TEST(AutogradBroadcast, RankAndSizeOneTogetherIsTheBiasShape) {
+  // THE case: bias {1,out} meeting activations {B,T,out}. offset == 1 AND the
+  // bias has a size-1 axis, so the reduced-dim list spans both index spaces.
+  // Pushing the size-1 axis in the operand's space instead of the gradient's
+  // yields {1,T,out}, which then fails to reshape back to {1,out}.
+  const int64_t B = 2, T = 3, OUT = 4;
+  auto acts = leafnd({B, T, OUT}, ones(B * T * OUT));
+  auto bias = leafnd({1, OUT}, ones(OUT));
+
+  auto y = ag::add(acts, bias);
+  ASSERT_EQ(y->data().shape(), std::vector<int64_t>({B, T, OUT}));
+  y->backward();
+
+  ASSERT_TRUE(bias->grad().has_value());
+  EXPECT_EQ(bias->grad()->shape(), std::vector<int64_t>({1, OUT}));
+  // Each bias entry is reused across every (b, t) pair -> B * T units.
+  expect_close(to_vec(bias->grad().value()),
+               (std::vector<float>{B * T, B * T, B * T, B * T}));
+}
+
+TEST(AutogradBroadcast, BroadcastGradFlowsThroughMult) {
+  // mult's backward multiplies by the other operand before accumulating, so the
+  // reduction has to happen on a grad that is NOT all-ones.
+  auto x = leafnd({2, 3}, {1, 2, 3, 4, 5, 6});
+  auto v = leafnd({3}, {10, 20, 30});
+
+  auto y = ag::mult(x, v);
+  y->backward();
+
+  // dL/dv[j] = sum over rows of x[i][j]  ->  {1+4, 2+5, 3+6}
+  ASSERT_TRUE(v->grad().has_value());
+  EXPECT_EQ(v->grad()->shape(), std::vector<int64_t>({3}));
+  expect_close(to_vec(v->grad().value()), (std::vector<float>{5, 7, 9}));
+
+  // dL/dx[i][j] = v[j], broadcast back out
+  expect_close(to_vec(x->grad().value()), (std::vector<float>{10, 20, 30, 10, 20, 30}));
+}

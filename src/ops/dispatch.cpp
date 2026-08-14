@@ -1,6 +1,7 @@
 #include "mytorch/ops.h"
 #include "mytorch/storage.h"
 #include <algorithm>
+#include <numeric>
 #include <stdexcept>
 #include <vector>
 
@@ -118,13 +119,39 @@ Tensor matmul(const Tensor &a, const Tensor &b) {
     BS.pop_back();
   }
 
-  // TODO: reconstruct this logic to allow for broadcasts
-  if (AS != BS) {
-    throw std::invalid_argument("matmul dispatch: the batch dimensions do not agree");
+  int64_t asz = AS.size();
+  int64_t bsz = BS.size();
+  std::vector<int64_t> BATCH(std::max(asz, bsz), 1);
+  asz--;
+  bsz--;
+
+  int64_t t = BATCH.size() - 1;
+  while (asz >= 0 && bsz >= 0) {
+    BATCH[t--] = std::max(AS[asz], BS[bsz]);
+    asz--;
+    bsz--;
   }
+
+  while (asz >= 0) {
+    BATCH[t--] = AS[asz--];
+  }
+  while (bsz >= 0) {
+    BATCH[t--] = BS[bsz--];
+  }
+
+  auto BATCH_A = BATCH;
+  BATCH_A.push_back(M);
+  BATCH_A.push_back(K);
+
+  auto BATCH_B = BATCH;
+  BATCH_B.push_back(K);
+  BATCH_B.push_back(N);
+
+  Tensor _a = a.broadcast_to(BATCH_A);
+  Tensor _b = b.broadcast_to(BATCH_B);
+
   // Otherwise we find our batch
   int64_t B = 1;
-  auto &BATCH = AS;
   for (auto b : BATCH)
     B *= b;
 
@@ -135,11 +162,11 @@ Tensor matmul(const Tensor &a, const Tensor &b) {
   // Both backends are documented to accept only contiguous or 2-D-transposed
   // inputs, so normalize here rather than letting each device decide for itself
   // (CPU used to silently copy via reshape(), CUDA used to throw).
-  Tensor A = matmul_operand(a);
-  Tensor Bm = matmul_operand(b);
+  Tensor A = matmul_operand(_a);
+  Tensor Bm = matmul_operand(_b);
 
-  Tensor output({B, M, N}, a.dtype(), a.device());
-  if (a.device() == CUDA)
+  Tensor output({B, M, N}, _a.dtype(), _a.device());
+  if (_a.device() == CUDA)
     cuda::matmul(A, Bm, output, B, M, K, N);
   else
     cpu::matmul(A, Bm, output, B, M, K, N);
@@ -153,11 +180,18 @@ Tensor reduce(const Tensor &a, std::vector<int64_t> &dims, bool keep_dim, CpuFn 
   // CPU OP and Cuda op always keeps dims
 
   std::vector<int64_t> target_shape = a.shape();
+  if (dims.empty()) {
+    dims.assign(a.ndim(), 0);
+    std::iota(dims.begin(), dims.end(), 0);
+  }
   for (auto &dim : dims) {
     if (dim < 0)
       dim += a.ndim();
     if (dim < 0) {
       throw std::invalid_argument("reduce: Dimension passed in is still < 0");
+    }
+    if (dim >= a.ndim()) {
+      throw std::invalid_argument("reduce: Dimension passed in is still >= maxdim");
     }
     target_shape[dim] = 1;
   }
@@ -170,8 +204,7 @@ Tensor reduce(const Tensor &a, std::vector<int64_t> &dims, bool keep_dim, CpuFn 
 
   Tensor result = (a.device() == CPU) ? cpu_op(a, out, dims) : cuda_op(a, out, dims);
   if (!keep_dim) {
-    throw std::logic_error("reduce: keep_dim = false not implemented yet");
-    // result.squeeze(dims); // TODO Uncomment after squeeze is implemented
+    return result.squeeze(dims);
   }
   return result;
 }

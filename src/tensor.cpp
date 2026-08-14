@@ -2,6 +2,7 @@
 #include "mytorch/cuda_utils.h"
 #include "mytorch/ops.h"
 #include "mytorch/storage.h"
+#include <algorithm>
 #include <cassert>
 #include <cstdint>
 #include <cstdlib>
@@ -126,6 +127,35 @@ Tensor Tensor::contiguous() const {
   }
 
   return out;
+}
+
+Tensor Tensor::squeeze(std::vector<int64_t> dims) const {
+  bool all = false;
+  if (dims.empty()) {
+    all = true;
+  }
+  std::sort(dims.begin(), dims.end());
+  dims.erase(std::unique(dims.begin(), dims.end()), dims.end());
+
+  std::vector<int64_t> new_shape;
+  std::vector<int64_t> new_stride;
+
+  int k = 0;
+  for (int64_t i = 0; i < ndim(); i++) {
+    if (_shape[i] == 1 && (all || k < dims.size() && i == dims[k])) {
+      k++;
+      continue;
+    }
+    new_shape.push_back(_shape[i]);
+    new_stride.push_back(_strides[i]);
+  }
+  // Still make 1 by 1
+  if (new_shape.empty()) {
+    new_shape.push_back(1);
+    new_stride.push_back(1);
+  }
+
+  return Tensor(_storage, new_shape, new_stride, _offset, _dtype);
 }
 
 Tensor Tensor::broadcast_to(std::vector<int64_t> target) const {

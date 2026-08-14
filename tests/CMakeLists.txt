@@ -31,3 +31,7 @@ gtest_discover_tests(autograd_test)
 add_executable(matmul_test matmul_test.cpp)
 target_link_libraries(matmul_test PRIVATE mytorch GTest::gtest_main)
 gtest_discover_tests(matmul_test)
+
+add_executable(reduction_test reduction_test.cpp)
+target_link_libraries(reduction_test PRIVATE mytorch GTest::gtest_main)
+gtest_discover_tests(reduction_test)

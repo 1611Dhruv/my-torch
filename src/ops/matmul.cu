@@ -212,7 +212,6 @@ Tensor matmul(const Tensor &a, const Tensor &b, Tensor &out, int64_t B, int64_t 
   });
 
   CUDA_CHECK(cudaGetLastError());
-  CUDA_CHECK(cudaDeviceSynchronize());
 
   return out;
 }

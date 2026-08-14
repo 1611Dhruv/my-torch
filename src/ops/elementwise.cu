@@ -7,8 +7,6 @@
 #include <sstream>
 #include <vector>
 
-#define MAX_DIM 8
-
 namespace torch {
 namespace cuda {
 
@@ -34,12 +32,6 @@ __global__ void unary_kernel(const scalar_t *a, scalar_t *out, int64_t n, Op op)
 
 // Added support for non contiguous element wise ops
 // Dont care about internal offsets, can assume data_ptr returns start of this tensor
-struct BinaryStridedDims {
-  int ndim;
-  int64_t shape[MAX_DIM];
-  int64_t a_strides[MAX_DIM];
-  int64_t b_strides[MAX_DIM];
-};
 
 template <typename scalar_t, typename Op>
 __global__ void binary_kernel_strided(const scalar_t *a, const scalar_t *b, scalar_t *out, int64_t n, Op op,
@@ -66,12 +58,6 @@ __global__ void binary_kernel_strided(const scalar_t *a, const scalar_t *b, scal
   out[i] = op(a[a_i], b[b_i]);
 }
 
-struct UnaryStridedDims {
-  int ndim;
-  int64_t shape[MAX_DIM];
-  int64_t a_strides[MAX_DIM];
-};
-
 template <typename scalar_t, typename Op>
 __global__ void unary_kernel_strided(const scalar_t *a, scalar_t *out, int64_t n, Op op, UnaryStridedDims strides) {
   int64_t i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -84,7 +70,7 @@ __global__ void unary_kernel_strided(const scalar_t *a, scalar_t *out, int64_t n
   for (int64_t j = strides.ndim - 1; j >= 0; j--) {
     int64_t coord = curr % strides.shape[j];
     curr = curr / strides.shape[j];
-    a_i += coord * strides.a_strides[j];
+    a_i += coord * strides.strides[j];
   }
 
   out[i] = op(a[a_i]);
@@ -130,7 +116,6 @@ template <typename Op> Tensor elementwise_binary_wrapper(const Tensor &a, const 
   }
 
   CUDA_CHECK(cudaGetLastError());
-  CUDA_CHECK(cudaDeviceSynchronize()); // TODO: Remove in prod
   return out;
 }
 
@@ -162,7 +147,7 @@ template <typename Op> Tensor elementwise_unary_wrapper(const Tensor &a, Tensor 
     stride.ndim = a.shape().size();
     for (int64_t i = 0; i < stride.ndim; i++) {
       stride.shape[i] = a.shape()[i];
-      stride.a_strides[i] = a.strides()[i];
+      stride.strides[i] = a.strides()[i];
     }
 
     DISPATCH_OP(a.dtype(), [&] {
@@ -176,7 +161,6 @@ template <typename Op> Tensor elementwise_unary_wrapper(const Tensor &a, Tensor 
   }
 
   CUDA_CHECK(cudaGetLastError());
-  CUDA_CHECK(cudaDeviceSynchronize()); // TODO: Remove in prod
 
   return out;
 }
@@ -199,6 +183,10 @@ Tensor exp(const Tensor &a, Tensor &out) {
 
 Tensor contiguous(const Tensor &a, Tensor &out) {
   return elementwise_unary_wrapper(a, out, [] __device__(auto x) { return x; });
+}
+
+template <typename scalar_t> Tensor fill(const Tensor &a, Tensor &out, scalar_t t) {
+  return elementwise_unary_wrapper(a, out, [t] __device__(auto x) { return t; });
 }
 
 } // namespace cuda
