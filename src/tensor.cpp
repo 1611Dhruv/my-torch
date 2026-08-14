@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <iomanip>
 #include <iostream>
 #include <random>
 #include <stdexcept>
@@ -148,11 +149,6 @@ Tensor Tensor::squeeze(std::vector<int64_t> dims) const {
     }
     new_shape.push_back(_shape[i]);
     new_stride.push_back(_strides[i]);
-  }
-  // Still make 1 by 1
-  if (new_shape.empty()) {
-    new_shape.push_back(1);
-    new_stride.push_back(1);
   }
 
   return Tensor(_storage, new_shape, new_stride, _offset, _dtype);
@@ -298,7 +294,7 @@ Tensor Tensor::rand(std::vector<int64_t> shape, Device device) {
   void *host = (device == CPU) ? t._storage.get() : malloc(nb);
 
   float *p = static_cast<float *>(host);
-  std::uniform_real_distribution<float> dist(0.0f, 1.0f);
+  std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
   for (int64_t i = 0; i < n; i++) {
     p[i] = dist(rand_generator());
   }
@@ -310,8 +306,88 @@ Tensor Tensor::rand(std::vector<int64_t> shape, Device device) {
   return t;
 }
 
+Tensor Tensor::randn(std::vector<int64_t> shape, Device device, double mean, double std) {
+  Tensor t(shape, torch::DType::Float32, device);
+  int64_t n = t.numel();
+  int64_t nb = t._storage.size();
+  void *host = (device == CPU) ? t._storage.get() : malloc(nb);
+
+  float *p = static_cast<float *>(host);
+  std::normal_distribution<float> dist(mean, std);
+  for (int64_t i = 0; i < n; i++) {
+    p[i] = dist(rand_generator());
+  }
+
+  if (device == CUDA) {
+    CUDA_CHECK(cudaMemcpy(t._storage.get(), host, nb, cudaMemcpyHostToDevice));
+    free(host);
+  }
+  return t;
+}
+namespace {
+
+const char *dtype_name(DType d) {
+  switch (d) {
+  case DType::Float32:
+    return "float32";
+  case DType::Int32:
+    return "int32";
+  case DType::UInt8:
+    return "uint8";
+  }
+  return "?";
+}
+
+// Walks shape/strides recursively. `base` already points at element 0
+// (data_ptr folds in the offset). edge <= 0 means "print everything".
+template <typename scalar_t>
+void print_dim(std::ostream &os, const scalar_t *base, const std::vector<int64_t> &shape,
+               const std::vector<int64_t> &strides, size_t dim, int64_t off, int64_t edge, int indent) {
+  if (dim == shape.size()) {
+    os << +base[off]; // unary + so uint8 prints as a number, not a char
+    return;
+  }
+  const int64_t n = shape[dim];
+  const bool last_dim = (dim + 1 == shape.size());
+  const bool trunc = (edge > 0 && n > 2 * edge);
+
+  os << "[";
+  for (int64_t i = 0; i < n; i++) {
+    if (trunc && i == edge) {
+      os << (last_dim ? "..., " : "...,\n" + std::string(indent + 1, ' '));
+      i = n - edge;
+    }
+    print_dim(os, base, shape, strides, dim + 1, off + i * strides[dim], edge, indent + 1);
+    if (i + 1 < n)
+      os << (last_dim ? ", " : ",\n" + std::string(indent + 1, ' '));
+  }
+  os << "]";
+}
+
+} // namespace
+
 std::ostream &operator<<(std::ostream &os, const Tensor &t) {
-  os << t.numel();
+  os << "tensor(shape=[";
+  for (size_t i = 0; i < t.shape().size(); i++)
+    os << t.shape()[i] << (i + 1 < t.shape().size() ? ", " : "");
+  os << "], dtype=" << dtype_name(t.dtype()) << ", device=" << (t.device() == CUDA ? "cuda" : "cpu") << ")\n";
+
+  const int64_t edge = (t.numel() > 64) ? 3 : 0;
+  std::ostringstream body;
+  body << std::setprecision(4);
+
+  DISPATCH_OP(t.dtype(), [&] {
+    if (t.device() == CUDA) {
+      Tensor c = t.contiguous();
+      std::vector<scalar_t> host(c.numel());
+      CUDA_CHECK(
+          cudaMemcpy(host.data(), c.data_ptr<scalar_t>(), host.size() * sizeof(scalar_t), cudaMemcpyDeviceToHost));
+      print_dim<scalar_t>(body, host.data(), c.shape(), c.strides(), 0, 0, edge, 0);
+    } else {
+      print_dim<scalar_t>(body, t.data_ptr<scalar_t>(), t.shape(), t.strides(), 0, 0, edge, 0);
+    }
+  });
+  os << body.str();
   return os;
 }
 } // namespace torch

@@ -11,7 +11,7 @@
       throw std::runtime_error(cudaGetErrorString(err));                                                               \
     }                                                                                                                  \
   } while (0)
-
+namespace torch {
 constexpr int64_t MAX_DIM = 8;
 
 struct BinaryStridedDims {
@@ -36,5 +36,7 @@ struct ReduceDims {
   int64_t keep_shape[MAX_DIM];
   int64_t keep_stride[MAX_DIM];
 };
+
+} // namespace torch
 
 #endif // CUDA_UTILS_H

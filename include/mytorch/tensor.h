@@ -49,6 +49,7 @@ public:
   static Tensor ones_like(const Tensor &other);
   static Tensor ones(std::vector<int64_t> shape, DType dtype, Device device);
   static Tensor rand(std::vector<int64_t> shape, Device device);
+  static Tensor randn(std::vector<int64_t> shape, Device device, double mean = 0, double std = 1);
   Tensor broadcast_to(std::vector<int64_t> shape) const;
 
   /*

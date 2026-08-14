@@ -22,6 +22,7 @@ public:
   }
 
   const Tensor &data() const { return _t; }
+  Tensor &data() { return _t; }
 
   const std::optional<Tensor> &grad() const { return _grad; }
   bool has_grad() const { return _grad.has_value(); }

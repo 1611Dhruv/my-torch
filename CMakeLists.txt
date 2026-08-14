@@ -27,6 +27,7 @@ add_library(mytorch
   src/ops/reductions.cpp
   src/ops/reductions.cu
   src/autograd/functional.cpp
+  src/nn/module.cpp
   #  src/data/mnist.cpp
 )
 target_include_directories(mytorch PUBLIC include)
