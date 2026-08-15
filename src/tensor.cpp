@@ -408,10 +408,8 @@ static void build_body(std::ostream &os, const Tensor &t, std::string pref,
   if (dim == t.ndim()) {
     DISPATCH_OP(t.dtype(), [&]() {
       if (t.device() == CUDA) {
-        std::vector<std::byte> buff(sizeof(size_t));
-        CUDA_CHECK(cudaMemcpy(buff.data(), t.data_ptr<scalar_t>() + off,
-                              sizeof(size_t), cudaMemcpyDeviceToHost));
-        os << reinterpret_cast<scalar_t *>(buff.data())[0];
+        // TODO: Can be optimized?
+        throw std::logic_error("CUDA dtype should not happen, mote to CPU");
       } else {
         os << t.data_ptr<scalar_t>()[off];
       }
@@ -461,7 +459,8 @@ std::ostream &operator<<(std::ostream &os, const Tensor &t) {
      << ", device=" << (t.device() == CPU ? "cpu" : "cuda") << ")\n";
 
   // Now build the body i guess...
-  build_body(os, t, " ", 0, 0);
+  Tensor tmp = t.to(t.dtype(), CPU);
+  build_body(os, tmp, " ", 0, 0);
   return os;
 }
 } // namespace torch
