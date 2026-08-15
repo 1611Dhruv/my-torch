@@ -16,6 +16,7 @@ void manual_seed(uint64_t);
 class Tensor {
 public:
   Tensor(std::vector<int64_t> shape, DType dtype = DType::Float32, Device device = CPU);
+  Tensor(std::vector<int64_t> shape, std::byte *bytes, DType dtype = DType::Float32, Device device = CPU);
 
   // View Ops
   Tensor reshape(std::vector<int64_t> new_shape) const;

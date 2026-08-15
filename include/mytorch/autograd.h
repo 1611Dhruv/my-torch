@@ -51,15 +51,16 @@ private:
   std::function<void(const Tensor &grad)> _backward;
 };
 
-// Functions
-std::shared_ptr<Variable> add(std::shared_ptr<Variable> a, std::shared_ptr<Variable> b);
-std::shared_ptr<Variable> sub(std::shared_ptr<Variable> a, std::shared_ptr<Variable> b);
-std::shared_ptr<Variable> mult(std::shared_ptr<Variable> a, std::shared_ptr<Variable> b);
-std::shared_ptr<Variable> matmul(std::shared_ptr<Variable> a, std::shared_ptr<Variable> b);
+using VarPtr = std::shared_ptr<Variable>;
 
-/*
- * NOTE: Future
- */
+// Functions
+VarPtr add(VarPtr a, VarPtr b);
+VarPtr sub(VarPtr a, VarPtr b);
+VarPtr mult(VarPtr a, VarPtr b);
+VarPtr matmul(VarPtr a, VarPtr b);
+VarPtr sum(VarPtr a, std::vector<int64_t> dims);
+// Performs elementwise div
+VarPtr div(VarPtr a, VarPtr b);
 
 } // namespace autograd
 } // namespace torch

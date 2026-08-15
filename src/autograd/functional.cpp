@@ -66,7 +66,7 @@ void Variable::backward() {
   }
 }
 
-std::shared_ptr<Variable> add(std::shared_ptr<Variable> a, std::shared_ptr<Variable> b) {
+VarPtr add(VarPtr a, VarPtr b) {
   // Copy the backward by value and not reference (Reference ends at the end of endop)
   // Copy the reference instead
   auto backward = [a, b](const Tensor &g) -> void {
@@ -76,7 +76,7 @@ std::shared_ptr<Variable> add(std::shared_ptr<Variable> a, std::shared_ptr<Varia
   return Variable::fromOp(torch::add(a->data(), b->data()), {a, b}, backward);
 }
 
-std::shared_ptr<Variable> sub(std::shared_ptr<Variable> a, std::shared_ptr<Variable> b) {
+VarPtr sub(VarPtr a, VarPtr b) {
   auto backward = [a, b](const Tensor &g) -> void {
     a->accumulate_grad(g);
     b->accumulate_grad(torch::neg(g));
@@ -84,7 +84,7 @@ std::shared_ptr<Variable> sub(std::shared_ptr<Variable> a, std::shared_ptr<Varia
   return Variable::fromOp(torch::sub(a->data(), b->data()), {a, b}, backward);
 }
 
-std::shared_ptr<Variable> mult(std::shared_ptr<Variable> a, std::shared_ptr<Variable> b) {
+VarPtr mult(VarPtr a, VarPtr b) {
   auto backward = [a, b](const Tensor &g) -> void {
     a->accumulate_grad(torch::mult(b->data(), g));
     b->accumulate_grad(torch::mult(a->data(), g));
@@ -92,7 +92,17 @@ std::shared_ptr<Variable> mult(std::shared_ptr<Variable> a, std::shared_ptr<Vari
   return Variable::fromOp(torch::mult(a->data(), b->data()), {a, b}, backward);
 }
 
-std::shared_ptr<Variable> matmul(std::shared_ptr<Variable> a, std::shared_ptr<Variable> b) {
+VarPtr div(VarPtr a, VarPtr b) {
+  // NOTE: This is where kernel fusion would be nice...
+  auto backward = [a, b](const Tensor &g) -> void {
+    a->accumulate_grad(torch::div(g, b->data()));
+    // -g * a / b^2
+    b->accumulate_grad(torch::mult(g, torch::neg(torch::div(a->data(), torch::mult(b->data(), b->data())))));
+  };
+  return Variable::fromOp(torch::div(a->data(), b->data()), {a, b}, backward);
+}
+
+VarPtr matmul(VarPtr a, VarPtr b) {
   auto backward = [a, b](const Tensor &g) -> void {
     a->accumulate_grad(torch::matmul(g, b->data().transpose(-1, -2)));
     b->accumulate_grad(torch::matmul(a->data().transpose(-1, -2), g));
@@ -100,5 +110,12 @@ std::shared_ptr<Variable> matmul(std::shared_ptr<Variable> a, std::shared_ptr<Va
   return Variable::fromOp(torch::matmul(a->data(), b->data()), {a, b}, backward);
 }
 
+VarPtr sum(VarPtr a, std::vector<int64_t> dims = {}) {
+  auto backward = [a](const Tensor &g) -> void {
+    Tensor g1 = g.broadcast_to(a->data().shape());
+    a->accumulate_grad(g1);
+  };
+  return Variable::fromOp(torch::sum(a->data(), dims, false), {a}, backward);
+}
 } // namespace autograd
 } // namespace torch

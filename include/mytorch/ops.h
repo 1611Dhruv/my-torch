@@ -9,6 +9,7 @@ namespace torch {
 Tensor add(const Tensor &a, const Tensor &b);
 Tensor sub(const Tensor &a, const Tensor &b);
 Tensor mult(const Tensor &a, const Tensor &b);
+Tensor div(const Tensor &a, const Tensor &b);
 Tensor matmul(const Tensor &a, const Tensor &b);
 
 Tensor neg(const Tensor &a);
@@ -34,6 +35,7 @@ namespace cpu {
 Tensor add(const Tensor &a, const Tensor &b, Tensor &out);
 Tensor sub(const Tensor &a, const Tensor &b, Tensor &out);
 Tensor mult(const Tensor &a, const Tensor &b, Tensor &out);
+Tensor div(const Tensor &a, const Tensor &b, Tensor &out);
 Tensor matmul(const Tensor &a, const Tensor &b, Tensor &out, int64_t B, int64_t M, int64_t K, int64_t N);
 
 Tensor neg(const Tensor &a, Tensor &out);
@@ -63,6 +65,7 @@ namespace cuda {
 Tensor add(const Tensor &a, const Tensor &b, Tensor &out);
 Tensor sub(const Tensor &a, const Tensor &b, Tensor &out);
 Tensor mult(const Tensor &a, const Tensor &b, Tensor &out);
+Tensor div(const Tensor &a, const Tensor &b, Tensor &out);
 Tensor matmul(const Tensor &a, const Tensor &b, Tensor &out, int64_t B, int64_t M, int64_t K, int64_t N);
 
 Tensor neg(const Tensor &a, Tensor &out);

@@ -132,6 +132,21 @@ Tensor mult(const Tensor &a, const Tensor &b, Tensor &out) {
   return out;
 }
 
+Tensor div(const Tensor &a, const Tensor &b, Tensor &out) {
+  assert(a.dtype() == b.dtype());
+  assert(a.shape() == b.shape());
+
+  DISPATCH_OP(a.dtype(), [&] {
+    binary_elementwise<scalar_t>(a, b, out, [](scalar_t x, scalar_t y) {
+      if (y == 0) {
+        throw std::invalid_argument("div called with y = 0");
+      }
+      return x / y;
+    });
+  });
+  return out;
+}
+
 Tensor exp(const Tensor &a, Tensor &out) {
   DISPATCH_OP(a.dtype(), [&] { unary_elementwise<scalar_t>(a, out, [](scalar_t x) { return std::exp(x); }); });
   return out;

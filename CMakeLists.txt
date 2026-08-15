@@ -28,6 +28,8 @@ add_library(mytorch
   src/ops/reductions.cu
   src/autograd/functional.cpp
   src/nn/module.cpp
+  src/optim.cpp
+  src/loss.cpp
   #  src/data/mnist.cpp
 )
 target_include_directories(mytorch PUBLIC include)

@@ -54,6 +54,7 @@ Tensor elementwise_binary_dispatch(const Tensor &a, const Tensor &b, CpuFn cpu_o
 Tensor add(const Tensor &a, const Tensor &b) { return elementwise_binary_dispatch(a, b, cpu::add, cuda::add); }
 Tensor sub(const Tensor &a, const Tensor &b) { return elementwise_binary_dispatch(a, b, cpu::sub, cuda::sub); }
 Tensor mult(const Tensor &a, const Tensor &b) { return elementwise_binary_dispatch(a, b, cpu::mult, cuda::mult); }
+Tensor div(const Tensor &a, const Tensor &b) { return elementwise_binary_dispatch(a, b, cpu::div, cuda::div); }
 
 // unary ops
 template <typename CpuFn, typename CudaFn>

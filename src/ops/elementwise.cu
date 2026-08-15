@@ -130,6 +130,9 @@ Tensor sub(const Tensor &a, const Tensor &b, Tensor &out) {
 Tensor mult(const Tensor &a, const Tensor &b, Tensor &out) {
   return elementwise_binary_wrapper(a, b, out, [] __device__(auto x, auto y) { return x * y; });
 }
+Tensor div(const Tensor &a, const Tensor &b, Tensor &out) {
+  return elementwise_binary_wrapper(a, b, out, [] __device__(auto x, auto y) { return x / y; });
+}
 
 template <typename Op> Tensor elementwise_unary_wrapper(const Tensor &a, Tensor &out, Op op) {
   int64_t n = a.numel();
