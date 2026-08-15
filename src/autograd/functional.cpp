@@ -128,5 +128,20 @@ VarPtr relu(VarPtr a) {
   };
   return Variable::fromOp(torch::relu(a->data()), {a}, backward);
 }
+
+VarPtr transpose(VarPtr a, int64_t dim1, int64_t dim2) {
+  auto backward = [a, dim1, dim2](const Tensor &g) -> void {
+    a->accumulate_grad(g.transpose(dim2, dim1));
+  };
+  return Variable::fromOp(a->data().transpose(dim1, dim2), {a}, backward);
+}
+
+VarPtr reshape(VarPtr a, std::vector<int64_t> dims) {
+  auto backward = [a](const Tensor &g) -> void {
+    a->accumulate_grad(g.reshape(a->data().shape()));
+  };
+  return Variable::fromOp(a->data().reshape(dims), {a}, backward);
+}
+
 } // namespace autograd
 } // namespace torch

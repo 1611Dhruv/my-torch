@@ -4,11 +4,12 @@
 #include "mytorch/storage.h"
 #include <cstdint>
 #include <iostream>
+#include <stdfloat>
 #include <vector>
 
 namespace torch {
 
-enum class DType { Float32, Int32, UInt8 };
+enum class DType { Float32, Float64, Int32, UInt8 };
 size_t itemsize(DType type);
 
 void manual_seed(uint64_t);
@@ -89,6 +90,9 @@ template <> constexpr DType dtype_of<int32_t>() {
 template <> constexpr DType dtype_of<uint8_t>() {
   return DType::UInt8;
 }
+template <> constexpr DType dtype_of<double>() {
+  return DType::Float64;
+}
 
 template <typename T> T *typeptr(DType type, std::byte *buff) {
   if (dtype_of<T>() != type) {
@@ -156,6 +160,11 @@ template <typename T> const T *Tensor::data_ptr() const {
     break;                                                                     \
   }                                                                            \
   case torch::DType::UInt8: {                                                  \
+    using SCALAR_NAME = uint8_t;                                               \
+    __VA_ARGS__();                                                             \
+    break;                                                                     \
+  }                                                                            \
+  case torch::DType::Float64: {                                                \
     using SCALAR_NAME = uint8_t;                                               \
     __VA_ARGS__();                                                             \
     break;                                                                     \

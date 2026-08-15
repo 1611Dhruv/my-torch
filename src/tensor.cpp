@@ -16,6 +16,8 @@
 namespace torch {
 size_t itemsize(DType type) {
   switch (type) {
+  case DType::Float64:
+    return 8;
   case DType::Float32:
     return 4;
   case DType::Int32:
@@ -330,6 +332,11 @@ Tensor Tensor::ones(std::vector<int64_t> shape, DType dtype, Device device) {
   case torch::DType::UInt8: {
     uint8_t *p = (uint8_t *)host_cp;
     std::fill(p, p + n, uint8_t(1));
+    break;
+  }
+  case torch::DType::Float64: {
+    double *p = (double *)host_cp;
+    std::fill(p, p + n, double(1));
     break;
   }
   }
