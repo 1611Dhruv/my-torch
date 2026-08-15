@@ -93,17 +93,27 @@ void example_linear_loop() {
 }
 
 void example_xor() {
-  torch::Tensor x({6767, 2}, torch::DType::UInt8);
-  torch::Tensor y({6767, 1}, torch::DType::UInt8);
+  torch::Tensor x({4, 2});
+  torch::Tensor y({4, 1});
   std::random_device rd{};
-  for (int i = 0; i < 6767; i++) {
-    uint8_t x1 = x.data_ptr<uint8_t>()[i * x.strides()[0]] =
-        static_cast<uint8_t>(rd() % 256);
-    uint8_t x2 = x.data_ptr<uint8_t>()[i * x.strides()[0] + 1] =
-        static_cast<uint8_t>(rd() % 256);
-    y.data_ptr<uint8_t>()[i * y.strides()[0]] = x1 ^ x2;
-  }
 
+  auto x_ptr = x.data_ptr<float>();
+  auto y_ptr = x.data_ptr<float>();
+  x_ptr[2 * 0] = 0;
+  x_ptr[2 * 0 + 1] = 0;
+  y_ptr[1 * 0] = 0;
+
+  x_ptr[2 * 1] = 0;
+  x_ptr[2 * 1 + 1] = 1;
+  y_ptr[1 * 1] = 1;
+
+  x_ptr[2 * 2] = 1;
+  x_ptr[2 * 2 + 1] = 0;
+  y_ptr[1 * 2] = 1;
+
+  x_ptr[2 * 3] = 1;
+  x_ptr[2 * 3 + 1] = 1;
+  y_ptr[1 * 3] = 0;
   using namespace torch::nn;
   using namespace torch::autograd;
   Sequential net{
@@ -116,25 +126,25 @@ void example_xor() {
   VarPtr y_var = Variable::leaf(y, false);
   auto opt = torch::SGD(net.params(), 0.01);
 
-  for (int epoch = 0; epoch < 1000; epoch++) {
+  for (int epoch = 0; epoch < 10000; epoch++) {
     opt.zero_grad();
     auto pred = net(x_var);
     auto loss = torch::MSE(pred, y_var);
-    if (epoch % 100 == 0) {
-      std::cout << "Epoch " << epoch << ": Loss=" << loss.loss();
+    if (epoch % 500 == 0) {
+      std::cout << "Epoch " << epoch << ": Loss=" << loss.loss() << std::endl;
     }
     loss.backward();
     opt.step();
   }
-  std::cout << "Final: ";
+  std::cout << "Final Params: \n";
   for (auto &[name, param] : net.named_params()) {
-    std::cout << name << ": " << param << std::endl;
+    std::cout << name << ": " << param.get()->data() << std::endl;
   }
 }
 
 int main() {
-  example_linear_handrolled();
-  example_linear_loop();
+  // example_linear_handrolled();
+  // example_linear_loop();
   example_xor();
   return 0;
 }
