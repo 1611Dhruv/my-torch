@@ -251,4 +251,13 @@ Tensor relu_back(const Tensor &a, const Tensor &g) {
   return elementwise_binary_dispatch(a, g, cpu::relu_back, cuda::relu_back);
 }
 
+Tensor cast(const Tensor &a, DType out_type) {
+  Tensor out(a.shape(), out_type, a.device());
+  if (a.device() == CUDA) {
+    return cuda::cast(a, out);
+  } else {
+    return cpu::cast(a, out);
+  }
+}
+
 } // namespace torch

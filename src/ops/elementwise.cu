@@ -232,5 +232,32 @@ Tensor relu_back(const Tensor &a, const Tensor &g, Tensor &out) {
       a, g, out, [] __device__(auto x, auto y) { return (x > 0) ? y : 0; });
 }
 
+template <typename src_t, typename dest_t, const int BS = 128>
+__global__ void cast_kernal(const src_t *A, dest_t *out, int64_t N) {
+  int tid = threadIdx.x;
+  int boff = BS * blockIdx.x;
+  const int tt = blockDim.x;
+
+  for (int i = tid; i < BS; i += tt) {
+    if (boff + i < N)
+      out[boff + i] = static_cast<dest_t>(A[boff + i]);
+  }
+}
+
+Tensor cast(const Tensor &a, Tensor &out) {
+  DISPATCH_OP_AS(a.dtype(), src_t, [&]() {
+    DISPATCH_OP_AS(out.dtype(), dest_t, [&] {
+      int N = a.numel();
+      constexpr int T = 256;
+      constexpr int BS = T << 2;
+      int ng = (N + BS - 1) / BS;
+      cast_kernal<src_t, dest_t, BS>
+          <<<ng, T>>>(a.data_ptr<src_t>(), out.data_ptr<dest_t>(), N);
+      CUDA_CHECK(cudaGetLastError());
+    });
+  });
+  return out;
+}
+
 } // namespace cuda
 } // namespace torch

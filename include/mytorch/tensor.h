@@ -27,7 +27,8 @@ public:
   Tensor squeeze(std::vector<int64_t> dims) const;
 
   // TODO: Need a to method to move across things
-  // Tensor to(DType type, Device dev) const;
+  Tensor to(DType dtype, Device dev) const;
+  Tensor broadcast_to(std::vector<int64_t> shape) const;
 
   // Access Ops
   Tensor operator[](int64_t i) const;
@@ -47,14 +48,15 @@ public:
   bool is_contiguous() const;
 
   // static factories
-  static Tensor zeros(std::vector<int64_t> shape, DType dtype, Device device);
+  static Tensor zeros(std::vector<int64_t> shape, DType dtype = DType::Float32,
+                      Device device = Device::CPU);
   static Tensor zeros_like(const Tensor &other);
   static Tensor ones_like(const Tensor &other);
-  static Tensor ones(std::vector<int64_t> shape, DType dtype, Device device);
-  static Tensor rand(std::vector<int64_t> shape, Device device);
-  static Tensor randn(std::vector<int64_t> shape, Device device,
+  static Tensor ones(std::vector<int64_t> shape, DType dtype = DType::Float32,
+                     Device device = Device::CPU);
+  static Tensor rand(std::vector<int64_t> shape, Device device = Device::CPU);
+  static Tensor randn(std::vector<int64_t> shape, Device device = Device::CPU,
                       double mean = 0, double std = 1);
-  Tensor broadcast_to(std::vector<int64_t> shape) const;
 
   /*
    NOTE: Future maybe
@@ -141,25 +143,27 @@ template <typename T> const T *Tensor::data_ptr() const {
 } // namespace torch
 
 // NOTE: Dispatch op (needed at compile time identification)
-#define DISPATCH_OP(DTYPE, ...)                                                \
+#define DISPATCH_OP_AS(DTYPE, SCALAR_NAME, ...)                                \
   switch (DTYPE) {                                                             \
   case torch::DType::Float32: {                                                \
-    using scalar_t = float;                                                    \
+    using SCALAR_NAME = float;                                                 \
     __VA_ARGS__();                                                             \
     break;                                                                     \
   }                                                                            \
   case torch::DType::Int32: {                                                  \
-    using scalar_t = int32_t;                                                  \
+    using SCALAR_NAME = int32_t;                                               \
     __VA_ARGS__();                                                             \
     break;                                                                     \
   }                                                                            \
   case torch::DType::UInt8: {                                                  \
-    using scalar_t = uint8_t;                                                  \
+    using SCALAR_NAME = uint8_t;                                               \
     __VA_ARGS__();                                                             \
     break;                                                                     \
   }                                                                            \
   default:                                                                     \
     throw std::invalid_argument("Dispatch doesn't support dtype");             \
   }
+
+#define DISPATCH_OP(DTYPE, ...) DISPATCH_OP_AS(DTYPE, scalar_t, __VA_ARGS__)
 
 #endif

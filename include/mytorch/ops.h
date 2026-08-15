@@ -23,6 +23,8 @@ Tensor relu_back(const Tensor &a, const Tensor &g);
 
 // Reductions
 Tensor sum(const Tensor &a, std::vector<int64_t> dims, bool keep_dim = true);
+
+Tensor cast(const Tensor &a, DType dtype);
 /*
  NOTE: Future
 Tensor ln(Tensor &a);
@@ -57,6 +59,7 @@ Tensor sum(const Tensor &a, Tensor &out, const std::vector<int64_t> &dims);
 Tensor relu(const Tensor &a, Tensor &out);
 Tensor relu_back(const Tensor &a, const Tensor &g, Tensor &out);
 
+Tensor cast(const Tensor &a, Tensor &out);
 /*
  NOTE: Future
 Tensor ln(Tensor &a);
@@ -94,6 +97,9 @@ Tensor sum(const Tensor &a, Tensor &out, const std::vector<int64_t> &dims);
 // Special fused kernels
 Tensor relu(const Tensor &a, Tensor &out);
 Tensor relu_back(const Tensor &a, const Tensor &g, Tensor &out);
+
+Tensor cast(const Tensor &a, Tensor &out);
+
 /*
  NOTE: Future
 Tensor ln(Tensor &a);

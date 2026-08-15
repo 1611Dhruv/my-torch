@@ -201,5 +201,19 @@ Tensor relu_back(const Tensor &a, const Tensor &g, Tensor &out) {
   return out;
 }
 
+Tensor cast(const Tensor &a, Tensor &out) {
+  DISPATCH_OP_AS(a.dtype(), src_t, [&]() {
+    DISPATCH_OP_AS(out.dtype(), dest_t, [&] {
+      const src_t *a_ptr = a.data_ptr<src_t>();
+      dest_t *out_ptr = out.data_ptr<dest_t>();
+      int64_t N = a.numel();
+      for (int64_t i = 0; i < N; i++) {
+        out_ptr[i] = static_cast<dest_t>(a_ptr[i]);
+      }
+    });
+  });
+  return out;
+}
+
 } // namespace cpu
 } // namespace torch

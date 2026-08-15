@@ -213,6 +213,41 @@ Tensor Tensor::broadcast_to(std::vector<int64_t> target) const {
   return Tensor(_storage, target, new_strides, _offset, _dtype);
 }
 
+Tensor Tensor::to(DType dtype, Device dev) const {
+  // Otherwise we will have to re assign storage somehow
+  if (dtype == _dtype && dev == _storage.device())
+    return *this;
+
+  // Sorage is the same
+  if (dev == _storage.device()) {
+    return torch::cast(*this, dtype);
+  }
+
+  if (dtype == _dtype) {
+    // TODO: Can be optimized to account for offset + numel()
+    Storage other(_storage.size(), dev);
+    CUDA_CHECK(cudaMemcpy(other.get(), _storage.get(), _storage.size(),
+                          cudaMemcpyDefault));
+    return Tensor(other, _shape, _strides, _offset, _dtype);
+  }
+
+  bool cast_first = (itemsize(dtype) > itemsize(_dtype));
+  // Otherwise both,
+  if (cast_first) {
+    Tensor tmp = torch::cast(*this, dtype);
+    Storage other(tmp.numel() * itemsize(dtype), dev);
+    CUDA_CHECK(cudaMemcpy(other.get(), tmp._storage.get(), tmp._storage.size(),
+                          cudaMemcpyDefault));
+    return Tensor(other, _shape, _strides, _offset, dtype);
+  } else {
+    Storage other(_storage.size(), dev);
+    CUDA_CHECK(cudaMemcpy(other.get(), _storage.get(), _storage.size(),
+                          cudaMemcpyDefault));
+    Tensor tmp = Tensor(other, _shape, _strides, _offset, _dtype);
+    return torch::cast(tmp, dtype);
+  }
+}
+
 // Access Ops
 Tensor Tensor::operator[](int64_t i) const {
   int64_t N = static_cast<int64_t>(_shape.size());

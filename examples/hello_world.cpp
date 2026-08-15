@@ -145,6 +145,12 @@ void example_xor() {
 int main() {
   // example_linear_handrolled();
   // example_linear_loop();
-  example_xor();
+  // example_xor();
+
+  // to test
+  torch::Tensor A = torch::Tensor::ones({1, 2, 3});
+  torch::Tensor A_cu = A.to(torch::DType::Int32, torch::CUDA);
+  std::cout << A << std::endl;
+  std::cout << A_cu << std::endl;
   return 0;
 }
