@@ -231,7 +231,7 @@ Tensor Tensor::to(DType dtype, Device dev) const {
     return Tensor(other, _shape, _strides, _offset, _dtype);
   }
 
-  bool cast_first = (itemsize(dtype) > itemsize(_dtype));
+  bool cast_first = (itemsize(dtype) < itemsize(_dtype));
   // Otherwise both,
   if (cast_first) {
     Tensor tmp = torch::cast(*this, dtype);

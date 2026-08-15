@@ -208,7 +208,17 @@ Tensor cast(const Tensor &a, Tensor &out) {
       dest_t *out_ptr = out.data_ptr<dest_t>();
       int64_t N = a.numel();
       for (int64_t i = 0; i < N; i++) {
-        out_ptr[i] = static_cast<dest_t>(a_ptr[i]);
+        int i_off = 0;
+        if (!a.is_contiguous()) {
+          int id = i;
+          for (int j = a.ndim() - 1; j >= 0; j--) {
+            i_off += (id % a.shape()[j]) * a.strides()[j];
+            id /= a.shape()[j];
+          }
+        } else {
+          i_off = i;
+        }
+        out_ptr[i] = static_cast<dest_t>(a_ptr[i_off]);
       }
     });
   });

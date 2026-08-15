@@ -239,20 +239,65 @@ __global__ void cast_kernal(const src_t *A, dest_t *out, int64_t N) {
   const int tt = blockDim.x;
 
   for (int i = tid; i < BS; i += tt) {
-    if (boff + i < N)
-      out[boff + i] = static_cast<dest_t>(A[boff + i]);
+    int id = boff + i;
+    if (id < N) {
+      out[id] = static_cast<dest_t>(A[id]);
+    }
+  }
+}
+
+template <typename src_t, typename dest_t, const int BS = 128>
+__global__ void cast_kernal_contig(const src_t *A, dest_t *out, int64_t N,
+                                   UnaryStridedDims dim) {
+  int tid = threadIdx.x;
+  int boff = BS * blockIdx.x;
+  const int tt = blockDim.x;
+
+  for (int i = tid; i < BS; i += tt) {
+    if (boff + i < N) {
+      int id = boff + i;
+      int i_off = 0;
+      for (int j = dim.ndim - 1; j >= 0; j--) {
+        i_off += (id % dim.shape[j]) * dim.strides[j];
+        id /= dim.shape[j];
+      }
+      out[boff + i] = static_cast<dest_t>(A[i_off]);
+    }
   }
 }
 
 Tensor cast(const Tensor &a, Tensor &out) {
+  const bool use_stride = !a.is_contiguous();
+  UnaryStridedDims stride;
+  if (!a.is_contiguous()) {
+    if (a.shape().size() > MAX_DIM) {
+      std::ostringstream oss;
+      oss << "cuda binary: support only maximum of " << MAX_DIM
+          << " dim shapes";
+      throw std::invalid_argument(oss.str());
+      ;
+    }
+
+    stride.ndim = a.shape().size();
+    for (int64_t i = 0; i < stride.ndim; i++) {
+      stride.shape[i] = a.shape()[i];
+      stride.strides[i] = a.strides()[i];
+    }
+  }
+
   DISPATCH_OP_AS(a.dtype(), src_t, [&]() {
     DISPATCH_OP_AS(out.dtype(), dest_t, [&] {
       int N = a.numel();
       constexpr int T = 256;
       constexpr int BS = T << 2;
       int ng = (N + BS - 1) / BS;
-      cast_kernal<src_t, dest_t, BS>
-          <<<ng, T>>>(a.data_ptr<src_t>(), out.data_ptr<dest_t>(), N);
+      if (use_stride) {
+        cast_kernal_contig<src_t, dest_t, BS>
+            <<<ng, T>>>(a.data_ptr<src_t>(), out.data_ptr<dest_t>(), N, stride);
+      } else {
+        cast_kernal<src_t, dest_t, BS>
+            <<<ng, T>>>(a.data_ptr<src_t>(), out.data_ptr<dest_t>(), N);
+      }
       CUDA_CHECK(cudaGetLastError());
     });
   });

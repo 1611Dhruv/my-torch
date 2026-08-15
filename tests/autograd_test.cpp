@@ -29,6 +29,12 @@ static std::shared_ptr<Variable> leaf1d(std::initializer_list<float> vals) {
   return Variable::leaf(t);
 }
 
+static std::shared_ptr<Variable>
+leaf_rand(std::initializer_list<int64_t> shape,
+          torch::Device dev = torch::Device::CPU) {
+  return Variable::leaf(torch::Tensor::randn(shape, dev, 6, 7));
+}
+
 // Flatten a contiguous tensor's values for easy comparison.
 static std::vector<float> to_vec(const Tensor &t) {
   const float *p = t.data_ptr<float>();
@@ -45,6 +51,18 @@ static void expect_close(std::vector<float> &&t1, std::vector<float> &&t2) {
 }
 
 // --- forward values (runnable now) ------------------------------------------
+constexpr float eps = 1e-9;
+
+TEST(AutogradDynamic, dynamic_add_cpu) {
+  auto a = leaf_rand({2, 3});
+  auto b = leaf_rand({2, 3});
+  auto E = leaf1d({eps});
+  auto E_TWICE = leaf1d({2 * eps});
+
+  auto E_PLUS = torch::add(torch::add(a->data(), b->data()), E->data());
+  auto E_MINUS = torch::sub(torch::add(a->data(), b->data()), E->data());
+  auto DERIVE = torch::div(torch::add(E_PLUS, E_MINUS), E_TWICE->data());
+}
 
 TEST(AutogradForward, Add) {
   auto a = leaf1d({1, 2, 3});
@@ -151,12 +169,14 @@ TEST(AutogradCombined, BigDiamond) {
   expect_close(to_vec(e->data()), (std::vector<float>{-0.25, -0.33, -0.28}));
 
   // Check backward
-  expect_close(to_vec(a->grad().value()), (std::vector<float>{-0.5, -0.7, -0.8}));
+  expect_close(to_vec(a->grad().value()),
+               (std::vector<float>{-0.5, -0.7, -0.8}));
   expect_close(to_vec(b->grad().value()), (std::vector<float>{1.0, 1.0, 1.0}));
   expect_close(to_vec(c->grad().value()), (std::vector<float>{1.0, 1.0, 1.0}));
   expect_close(to_vec(d->grad().value()), (std::vector<float>{1.0, 1.0, 1.0}));
   expect_close(to_vec(e->grad().value()), (std::vector<float>{1.0, 1.0, 1.0}));
-  expect_close(to_vec(x->grad().value()), (std::vector<float>{1.0, -0.2, -0.8}));
+  expect_close(to_vec(x->grad().value()),
+               (std::vector<float>{1.0, -0.2, -0.8}));
 }
 
 // --- broadcast gradients ----------------------------------------------------
@@ -173,14 +193,17 @@ TEST(AutogradCombined, BigDiamond) {
 // then live in two different spaces and off-by-`offset` errors are silent.
 
 // A leaf of arbitrary shape, filled from flat row-major values.
-static std::shared_ptr<Variable> leafnd(const std::vector<int64_t> &shape, const std::vector<float> &vals) {
+static std::shared_ptr<Variable> leafnd(const std::vector<int64_t> &shape,
+                                        const std::vector<float> &vals) {
   Tensor t(shape, torch::DType::Float32, torch::CPU);
   EXPECT_EQ(static_cast<int64_t>(vals.size()), t.numel());
   std::copy(vals.begin(), vals.end(), t.data_ptr<float>());
   return Variable::leaf(t);
 }
 
-static std::vector<float> ones(int64_t n) { return std::vector<float>(n, 1.0f); }
+static std::vector<float> ones(int64_t n) {
+  return std::vector<float>(n, 1.0f);
+}
 
 TEST(AutogradBroadcast, RankOnlyBroadcastSumsGradToOperandShape) {
   // {3,4} + {4}: the bare vector is reused across all 3 rows, so each of its
@@ -251,5 +274,6 @@ TEST(AutogradBroadcast, BroadcastGradFlowsThroughMult) {
   expect_close(to_vec(v->grad().value()), (std::vector<float>{5, 7, 9}));
 
   // dL/dx[i][j] = v[j], broadcast back out
-  expect_close(to_vec(x->grad().value()), (std::vector<float>{10, 20, 30, 10, 20, 30}));
+  expect_close(to_vec(x->grad().value()),
+               (std::vector<float>{10, 20, 30, 10, 20, 30}));
 }

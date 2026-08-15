@@ -62,7 +62,11 @@ VarPtr add(VarPtr a, VarPtr b);
 VarPtr sub(VarPtr a, VarPtr b);
 VarPtr mult(VarPtr a, VarPtr b);
 VarPtr matmul(VarPtr a, VarPtr b);
+
 VarPtr sum(VarPtr a, std::vector<int64_t> dims);
+VarPtr transpose(VarPtr a, int64_t dim1, int64_t dim2);
+VarPtr reshape(VarPtr a, std::vector<int64_t> dims);
+
 // Performs elementwise div
 VarPtr div(VarPtr a, VarPtr b);
 
