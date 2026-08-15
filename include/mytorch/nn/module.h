@@ -20,29 +20,36 @@ public:
 
   // Virtual forward function
   virtual std::shared_ptr<Variable> forward(std::shared_ptr<Variable> inp) = 0;
-  std::shared_ptr<Variable> operator()(std::shared_ptr<Variable> inp) { return forward(inp); };
+  std::shared_ptr<Variable> operator()(std::shared_ptr<Variable> inp) {
+    return forward(inp);
+  };
 
   // public functions for things :)
-  std::vector<std::pair<std::string, std::shared_ptr<Variable>>> named_params() const;
+  std::vector<std::pair<std::string, std::shared_ptr<Variable>>>
+  named_params() const;
   std::vector<std::shared_ptr<Variable>> params() const;
   void zero_grad();
 
 protected:
   // Each nn module should be able to either register a param or a module
   void register_module(const std::string &name, Module *module);
-  std::shared_ptr<Variable> register_param(const std::string &name, std::shared_ptr<Variable> param);
+  std::shared_ptr<Variable> register_param(const std::string &name,
+                                           std::shared_ptr<Variable> param);
 
 private:
   // Just use raw ptr to submodule this guy might have
   std::vector<std::pair<std::string, Module *>> _modules;
   // Params can be passed in as a shared_ptr, because thats what we do today
   std::vector<std::pair<std::string, std::shared_ptr<Variable>>> _params;
-  void _collect(const std::string &prefix, std::vector<std::pair<std::string, std::shared_ptr<Variable>>> &out) const;
+  void _collect(const std::string &prefix,
+                std::vector<std::pair<std::string, std::shared_ptr<Variable>>>
+                    &out) const;
 };
 
 class Linear : public Module {
 public:
-  Linear(int64_t in_dim, int64_t out_dim, DType dtype = DType::Float32, Device dev = CPU);
+  Linear(int64_t in_dim, int64_t out_dim, DType dtype = DType::Float32,
+         Device dev = CPU);
   std::shared_ptr<Variable> forward(std::shared_ptr<Variable> inp) override;
 
 private:
@@ -53,7 +60,9 @@ private:
 class ReLU : public Module {
 public:
   ReLU() {}
-  std::shared_ptr<Variable> forward(std::shared_ptr<Variable> inp) override { return torch::autograd::relu(inp); };
+  std::shared_ptr<Variable> forward(std::shared_ptr<Variable> inp) override {
+    return torch::autograd::relu(inp);
+  };
 };
 
 class Sequential : public Module {

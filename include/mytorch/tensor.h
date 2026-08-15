@@ -15,8 +15,10 @@ void manual_seed(uint64_t);
 
 class Tensor {
 public:
-  Tensor(std::vector<int64_t> shape, DType dtype = DType::Float32, Device device = CPU);
-  Tensor(std::vector<int64_t> shape, std::byte *bytes, DType dtype = DType::Float32, Device device = CPU);
+  Tensor(std::vector<int64_t> shape, DType dtype = DType::Float32,
+         Device device = CPU);
+  Tensor(std::vector<int64_t> shape, std::byte *bytes,
+         DType dtype = DType::Float32, Device device = CPU);
 
   // View Ops
   Tensor reshape(std::vector<int64_t> new_shape) const;
@@ -50,7 +52,8 @@ public:
   static Tensor ones_like(const Tensor &other);
   static Tensor ones(std::vector<int64_t> shape, DType dtype, Device device);
   static Tensor rand(std::vector<int64_t> shape, Device device);
-  static Tensor randn(std::vector<int64_t> shape, Device device, double mean = 0, double std = 1);
+  static Tensor randn(std::vector<int64_t> shape, Device device,
+                      double mean = 0, double std = 1);
   Tensor broadcast_to(std::vector<int64_t> shape) const;
 
   /*
@@ -62,7 +65,8 @@ public:
   int64_t nbytes() const;
  */
 private:
-  Tensor(Storage storage, std::vector<int64_t> shape, std::vector<int64_t> strides, int64_t offset, DType dtype);
+  Tensor(Storage storage, std::vector<int64_t> shape,
+         std::vector<int64_t> strides, int64_t offset, DType dtype);
 
   std::vector<int64_t> _shape;
   DType _dtype;
@@ -74,9 +78,15 @@ private:
 std::ostream &operator<<(std::ostream &os, const Tensor &t);
 
 template <typename T> constexpr DType dtype_of();
-template <> constexpr DType dtype_of<float>() { return DType::Float32; }
-template <> constexpr DType dtype_of<int32_t>() { return DType::Int32; }
-template <> constexpr DType dtype_of<uint8_t>() { return DType::UInt8; }
+template <> constexpr DType dtype_of<float>() {
+  return DType::Float32;
+}
+template <> constexpr DType dtype_of<int32_t>() {
+  return DType::Int32;
+}
+template <> constexpr DType dtype_of<uint8_t>() {
+  return DType::UInt8;
+}
 
 template <typename T> T *typeptr(DType type, std::byte *buff) {
   if (dtype_of<T>() != type) {
@@ -99,7 +109,8 @@ template <typename T> T &Tensor::at(std::initializer_list<int64_t> idx) {
   int elm_off = _offset;
   for (auto it = idx.begin(); it != idx.end(); it++) {
     if (curr >= N) {
-      throw std::invalid_argument("Too many indexes provide, dim doesn't match");
+      throw std::invalid_argument(
+          "Too many indexes provide, dim doesn't match");
     }
     elm_off += _strides[curr] * *it;
     curr++;
@@ -130,25 +141,25 @@ template <typename T> const T *Tensor::data_ptr() const {
 } // namespace torch
 
 // NOTE: Dispatch op (needed at compile time identification)
-#define DISPATCH_OP(DTYPE, ...)                                                                                        \
-  switch (DTYPE) {                                                                                                     \
-  case torch::DType::Float32: {                                                                                        \
-    using scalar_t = float;                                                                                            \
-    __VA_ARGS__();                                                                                                     \
-    break;                                                                                                             \
-  }                                                                                                                    \
-  case torch::DType::Int32: {                                                                                          \
-    using scalar_t = int32_t;                                                                                          \
-    __VA_ARGS__();                                                                                                     \
-    break;                                                                                                             \
-  }                                                                                                                    \
-  case torch::DType::UInt8: {                                                                                          \
-    using scalar_t = uint8_t;                                                                                          \
-    __VA_ARGS__();                                                                                                     \
-    break;                                                                                                             \
-  }                                                                                                                    \
-  default:                                                                                                             \
-    throw std::invalid_argument("Dispatch doesn't support dtype");                                                     \
+#define DISPATCH_OP(DTYPE, ...)                                                \
+  switch (DTYPE) {                                                             \
+  case torch::DType::Float32: {                                                \
+    using scalar_t = float;                                                    \
+    __VA_ARGS__();                                                             \
+    break;                                                                     \
+  }                                                                            \
+  case torch::DType::Int32: {                                                  \
+    using scalar_t = int32_t;                                                  \
+    __VA_ARGS__();                                                             \
+    break;                                                                     \
+  }                                                                            \
+  case torch::DType::UInt8: {                                                  \
+    using scalar_t = uint8_t;                                                  \
+    __VA_ARGS__();                                                             \
+    break;                                                                     \
+  }                                                                            \
+  default:                                                                     \
+    throw std::invalid_argument("Dispatch doesn't support dtype");             \
   }
 
 #endif

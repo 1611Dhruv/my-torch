@@ -12,13 +12,16 @@ namespace autograd {
 
 class Variable {
 public:
-  static std::shared_ptr<Variable> leaf(const Tensor &t, bool requires_grad = true) {
+  static std::shared_ptr<Variable> leaf(const Tensor &t,
+                                        bool requires_grad = true) {
     return std::shared_ptr<Variable>(new Variable(t, requires_grad));
   }
 
-  static std::shared_ptr<Variable> fromOp(const Tensor &data, std::vector<std::shared_ptr<Variable>> inputs,
-                                          std::function<void(const Tensor &grad)> backward) {
-    return std::shared_ptr<Variable>(new Variable(data, true, inputs, backward));
+  static std::shared_ptr<Variable>
+  fromOp(const Tensor &data, std::vector<std::shared_ptr<Variable>> inputs,
+         std::function<void(const Tensor &grad)> backward) {
+    return std::shared_ptr<Variable>(
+        new Variable(data, true, inputs, backward));
   }
 
   const Tensor &data() const { return _t; }
@@ -37,7 +40,8 @@ private:
       : _t(tensor),
         _requires_grad(requires_grad) {}
 
-  Variable(const Tensor &tensor, bool requires_grad, std::vector<std::shared_ptr<Variable>> inputs,
+  Variable(const Tensor &tensor, bool requires_grad,
+           std::vector<std::shared_ptr<Variable>> inputs,
            std::function<void(const Tensor &grad)> backward)
       : _t(tensor),
         _requires_grad(requires_grad),

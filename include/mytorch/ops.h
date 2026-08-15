@@ -27,8 +27,9 @@ Tensor sum(const Tensor &a, std::vector<int64_t> dims, bool keep_dim = true);
  NOTE: Future
 Tensor ln(Tensor &a);
 
-Tensor max(const Tensor &a, const std::vector<int64_t> dims, bool keep_dim = true);
-Tensor mean(const Tensor &a, const std::vector<int64_t> dims, bool keep_dim = true);
+Tensor max(const Tensor &a, const std::vector<int64_t> dims, bool keep_dim =
+true); Tensor mean(const Tensor &a, const std::vector<int64_t> dims, bool
+keep_dim = true);
 */
 
 namespace cpu {
@@ -40,7 +41,8 @@ Tensor add(const Tensor &a, const Tensor &b, Tensor &out);
 Tensor sub(const Tensor &a, const Tensor &b, Tensor &out);
 Tensor mult(const Tensor &a, const Tensor &b, Tensor &out);
 Tensor div(const Tensor &a, const Tensor &b, Tensor &out);
-Tensor matmul(const Tensor &a, const Tensor &b, Tensor &out, int64_t B, int64_t M, int64_t K, int64_t N);
+Tensor matmul(const Tensor &a, const Tensor &b, Tensor &out, int64_t B,
+              int64_t M, int64_t K, int64_t N);
 
 Tensor neg(const Tensor &a, Tensor &out);
 Tensor sin(const Tensor &a, Tensor &out);
@@ -74,14 +76,16 @@ Tensor add(const Tensor &a, const Tensor &b, Tensor &out);
 Tensor sub(const Tensor &a, const Tensor &b, Tensor &out);
 Tensor mult(const Tensor &a, const Tensor &b, Tensor &out);
 Tensor div(const Tensor &a, const Tensor &b, Tensor &out);
-Tensor matmul(const Tensor &a, const Tensor &b, Tensor &out, int64_t B, int64_t M, int64_t K, int64_t N);
+Tensor matmul(const Tensor &a, const Tensor &b, Tensor &out, int64_t B,
+              int64_t M, int64_t K, int64_t N);
 
 Tensor neg(const Tensor &a, Tensor &out);
 Tensor sin(const Tensor &a, Tensor &out);
 Tensor cos(const Tensor &a, Tensor &out);
 Tensor exp(const Tensor &a, Tensor &out);
 Tensor contiguous(const Tensor &a, Tensor &out);
-template <typename scalar_t> Tensor fill(const Tensor &a, Tensor &out, scalar_t t);
+template <typename scalar_t>
+Tensor fill(const Tensor &a, Tensor &out, scalar_t t);
 
 // Reductions
 // NOTE: Always keeps dim = true
