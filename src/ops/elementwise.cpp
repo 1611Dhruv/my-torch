@@ -7,7 +7,8 @@ namespace torch {
 namespace cpu {
 
 // Helper which will walk through one tensor applying op and saving in out
-template <typename T, typename Op> static void unary_elementwise(const Tensor &a, Tensor &out, Op op) {
+template <typename T, typename Op>
+static void unary_elementwise(const Tensor &a, Tensor &out, Op op) {
   assert(out.is_contiguous() && out.shape() == a.shape());
 
   const T *a_data = a.data_ptr<T>();
@@ -54,7 +55,8 @@ template <typename T, typename Op> static void unary_elementwise(const Tensor &a
 
 // Helper which will walk through the two tensors applying op and saving  in out
 template <typename T, typename Op>
-static void binary_elementwise(const Tensor &a, const Tensor &b, Tensor &out, Op op) {
+static void binary_elementwise(const Tensor &a, const Tensor &b, Tensor &out,
+                               Op op) {
   assert(out.is_contiguous() && out.shape() == a.shape());
 
   const T *a_data = a.data_ptr<T>();
@@ -109,8 +111,10 @@ Tensor add(const Tensor &a, const Tensor &b, Tensor &out) {
   assert(a.dtype() == b.dtype());
   assert(a.shape() == b.shape());
 
-  DISPATCH_OP(a.dtype(),
-              [&] { binary_elementwise<scalar_t>(a, b, out, [](scalar_t x, scalar_t y) { return x + y; }); });
+  DISPATCH_OP(a.dtype(), [&] {
+    binary_elementwise<scalar_t>(a, b, out,
+                                 [](scalar_t x, scalar_t y) { return x + y; });
+  });
   return out;
 }
 
@@ -118,8 +122,10 @@ Tensor sub(const Tensor &a, const Tensor &b, Tensor &out) {
   assert(a.dtype() == b.dtype());
   assert(a.shape() == b.shape());
 
-  DISPATCH_OP(a.dtype(),
-              [&] { binary_elementwise<scalar_t>(a, b, out, [](scalar_t x, scalar_t y) { return x - y; }); });
+  DISPATCH_OP(a.dtype(), [&] {
+    binary_elementwise<scalar_t>(a, b, out,
+                                 [](scalar_t x, scalar_t y) { return x - y; });
+  });
   return out;
 }
 
@@ -127,8 +133,10 @@ Tensor mult(const Tensor &a, const Tensor &b, Tensor &out) {
   assert(a.dtype() == b.dtype());
   assert(a.shape() == b.shape());
 
-  DISPATCH_OP(a.dtype(),
-              [&] { binary_elementwise<scalar_t>(a, b, out, [](scalar_t x, scalar_t y) { return x * y; }); });
+  DISPATCH_OP(a.dtype(), [&] {
+    binary_elementwise<scalar_t>(a, b, out,
+                                 [](scalar_t x, scalar_t y) { return x * y; });
+  });
   return out;
 }
 
@@ -148,22 +156,48 @@ Tensor div(const Tensor &a, const Tensor &b, Tensor &out) {
 }
 
 Tensor exp(const Tensor &a, Tensor &out) {
-  DISPATCH_OP(a.dtype(), [&] { unary_elementwise<scalar_t>(a, out, [](scalar_t x) { return std::exp(x); }); });
+  DISPATCH_OP(a.dtype(), [&] {
+    unary_elementwise<scalar_t>(a, out, [](scalar_t x) { return std::exp(x); });
+  });
   return out;
 }
 
 Tensor sin(const Tensor &a, Tensor &out) {
-  DISPATCH_OP(a.dtype(), [&] { unary_elementwise<scalar_t>(a, out, [](scalar_t x) { return std::sin(x); }); });
+  DISPATCH_OP(a.dtype(), [&] {
+    unary_elementwise<scalar_t>(a, out, [](scalar_t x) { return std::sin(x); });
+  });
   return out;
 }
 
 Tensor cos(const Tensor &a, Tensor &out) {
-  DISPATCH_OP(a.dtype(), [&] { unary_elementwise<scalar_t>(a, out, [](scalar_t x) { return std::cos(x); }); });
+  DISPATCH_OP(a.dtype(), [&] {
+    unary_elementwise<scalar_t>(a, out, [](scalar_t x) { return std::cos(x); });
+  });
   return out;
 }
 
 Tensor neg(const Tensor &a, Tensor &out) {
-  DISPATCH_OP(a.dtype(), [&] { unary_elementwise<scalar_t>(a, out, [](scalar_t x) { return -x; }); })
+  DISPATCH_OP(a.dtype(), [&] {
+    unary_elementwise<scalar_t>(a, out, [](scalar_t x) { return -x; });
+  })
+  return out;
+}
+
+// Special Ops
+Tensor relu(const Tensor &a, Tensor &out) {
+  DISPATCH_OP(a.dtype(), [&] {
+    unary_elementwise<scalar_t>(a, out,
+                                [](auto x) { return (x + std::abs(x)) / 2; });
+  });
+  return out;
+}
+
+Tensor relu_back(const Tensor &a, const Tensor &g, Tensor &out) {
+  DISPATCH_OP(a.dtype(), [&] {
+    binary_elementwise<scalar_t>(a, g, out, [](auto x, auto b) {
+      return x > 0 ? b : static_cast<scalar_t>(0);
+    });
+  });
   return out;
 }
 

@@ -62,6 +62,9 @@ VarPtr sum(VarPtr a, std::vector<int64_t> dims);
 // Performs elementwise div
 VarPtr div(VarPtr a, VarPtr b);
 
+// Special kernels
+VarPtr relu(VarPtr a);
+
 } // namespace autograd
 } // namespace torch
 

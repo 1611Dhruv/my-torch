@@ -52,7 +52,8 @@ Tensor::Tensor(std::vector<int64_t> shape, DType dtype, Device device)
       _storage(numel_of(shape) * itemsize(dtype), device),
       _offset(0) {}
 
-Tensor::Tensor(std::vector<int64_t> shape, std::byte *bytes, DType dtype, Device device)
+Tensor::Tensor(std::vector<int64_t> shape, std::byte *bytes, DType dtype,
+               Device device)
     : _shape(shape),
       _dtype(dtype),
       _strides(strides_for(shape)),
@@ -61,12 +62,14 @@ Tensor::Tensor(std::vector<int64_t> shape, std::byte *bytes, DType dtype, Device
   if (device == CPU) {
     std::memcpy(_storage.get(), bytes, _storage.size());
   } else {
-    CUDA_CHECK(cudaMemcpy(_storage.get(), bytes, _storage.size(), cudaMemcpyDeviceToDevice));
+    CUDA_CHECK(cudaMemcpy(_storage.get(), bytes, _storage.size(),
+                          cudaMemcpyDeviceToDevice));
   }
 }
 
 // Private View only
-Tensor::Tensor(Storage storage, std::vector<int64_t> shape, std::vector<int64_t> strides, int64_t offset, DType dtype)
+Tensor::Tensor(Storage storage, std::vector<int64_t> shape,
+               std::vector<int64_t> strides, int64_t offset, DType dtype)
     : _shape(shape),
       _dtype(dtype),
       _strides(strides),
@@ -76,7 +79,8 @@ Tensor::Tensor(Storage storage, std::vector<int64_t> shape, std::vector<int64_t>
 // View Ops
 Tensor Tensor::reshape(std::vector<int64_t> new_shape) const {
   if (numel_of(_shape) != numel_of(new_shape)) {
-    throw std::invalid_argument("Reshape can't work as number of elements are different");
+    throw std::invalid_argument(
+        "Reshape can't work as number of elements are different");
   }
 
   // Non contiguous needs a new buffer before reshaping
@@ -109,7 +113,8 @@ Tensor Tensor::transpose(int64_t dim1, int64_t dim2) const {
   return Tensor(_storage, new_shape, new_strides, _offset, _dtype);
 }
 
-static bool next_index(std::vector<int64_t> &idx, const std::vector<int64_t> &shape) {
+static bool next_index(std::vector<int64_t> &idx,
+                       const std::vector<int64_t> &shape) {
   for (int64_t d = static_cast<int64_t>(idx.size()) - 1; d >= 0; --d) {
     if (++idx[d] < shape[d])
       return true;
@@ -185,13 +190,15 @@ Tensor Tensor::broadcast_to(std::vector<int64_t> target) const {
       target[j] = _shape[i];
       new_strides[j] = _strides[i];
     } else if (target[j] < 1) {
-      throw std::invalid_argument("Could not broadcast as target dimension is < 1 & not -1");
+      throw std::invalid_argument(
+          "Could not broadcast as target dimension is < 1 & not -1");
     } else if (_shape[i] == target[j]) {
       new_strides[j] = _strides[i];
     } else if (_shape[i] == 1) {
       new_strides[j] = 0;
     } else {
-      throw std::invalid_argument("Could not broadcast as the dimensions dont match");
+      throw std::invalid_argument(
+          "Could not broadcast as the dimensions dont match");
     }
     i--;
     j--;
@@ -223,11 +230,14 @@ Tensor Tensor::operator[](int64_t i) const {
     new_strides[j] = _strides[j + 1];
   }
 
-  return Tensor(_storage, new_shape, new_strides, _offset + i * _strides[0], _dtype);
+  return Tensor(_storage, new_shape, new_strides, _offset + i * _strides[0],
+                _dtype);
 }
 
 // Metadata Accessors
-int64_t Tensor::numel() const { return numel_of(_shape); }
+int64_t Tensor::numel() const {
+  return numel_of(_shape);
+}
 
 bool Tensor::is_contiguous() const {
   int64_t N = static_cast<int64_t>(_shape.size());
@@ -260,7 +270,9 @@ Tensor Tensor::zeros_like(const Tensor &other) {
   }
   return t;
 }
-Tensor Tensor::ones_like(const Tensor &other) { return Tensor::ones(other.shape(), other.dtype(), other.device()); }
+Tensor Tensor::ones_like(const Tensor &other) {
+  return Tensor::ones(other.shape(), other.dtype(), other.device());
+}
 
 Tensor Tensor::ones(std::vector<int64_t> shape, DType dtype, Device device) {
   Tensor t(shape, dtype, device);
@@ -288,7 +300,8 @@ Tensor Tensor::ones(std::vector<int64_t> shape, DType dtype, Device device) {
   }
 
   if (device == CUDA) {
-    CUDA_CHECK(cudaMemcpy(t._storage.get(), host_cp, nb, cudaMemcpyHostToDevice));
+    CUDA_CHECK(
+        cudaMemcpy(t._storage.get(), host_cp, nb, cudaMemcpyHostToDevice));
     free(host_cp);
   }
   return t;
@@ -299,7 +312,9 @@ static std::mt19937 &rand_generator() {
   return gen;
 }
 
-void manual_seed(uint64_t seed) { rand_generator().seed(seed); }
+void manual_seed(uint64_t seed) {
+  rand_generator().seed(seed);
+}
 
 Tensor Tensor::rand(std::vector<int64_t> shape, Device device) {
   Tensor t(shape, torch::DType::Float32, device);
@@ -320,7 +335,8 @@ Tensor Tensor::rand(std::vector<int64_t> shape, Device device) {
   return t;
 }
 
-Tensor Tensor::randn(std::vector<int64_t> shape, Device device, double mean, double std) {
+Tensor Tensor::randn(std::vector<int64_t> shape, Device device, double mean,
+                     double std) {
   Tensor t(shape, torch::DType::Float32, device);
   int64_t n = t.numel();
   int64_t nb = t._storage.size();
@@ -352,12 +368,14 @@ static std::string get_dtype(DType dt) {
   throw std::invalid_argument("How did we get here?");
 }
 
-static void build_body(std::ostream &os, const Tensor &t, std::string pref, int64_t dim, int64_t off) {
+static void build_body(std::ostream &os, const Tensor &t, std::string pref,
+                       int64_t dim, int64_t off) {
   if (dim == t.ndim()) {
     DISPATCH_OP(t.dtype(), [&]() {
       if (t.device() == CUDA) {
         std::vector<std::byte> buff(sizeof(size_t));
-        CUDA_CHECK(cudaMemcpy(buff.data(), t.data_ptr<scalar_t>() + off, sizeof(size_t), cudaMemcpyDeviceToHost));
+        CUDA_CHECK(cudaMemcpy(buff.data(), t.data_ptr<scalar_t>() + off,
+                              sizeof(size_t), cudaMemcpyDeviceToHost));
         os << reinterpret_cast<scalar_t *>(buff.data())[0];
       } else {
         os << t.data_ptr<scalar_t>()[off];
@@ -404,7 +422,8 @@ std::ostream &operator<<(std::ostream &os, const Tensor &t) {
     bool last = (i == t.ndim() - 1);
     os << std::to_string(t.shape()[i]) << ((i == t.ndim() - 1) ? "" : ", ");
   }
-  os << "], dtype=" << get_dtype(t.dtype()) << ", device=" << (t.device() == CPU ? "cpu" : "cuda") << ")\n";
+  os << "], dtype=" << get_dtype(t.dtype())
+     << ", device=" << (t.device() == CPU ? "cpu" : "cuda") << ")\n";
 
   // Now build the body i guess...
   build_body(os, t, " ", 0, 0);

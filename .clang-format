@@ -2,8 +2,12 @@
 # format-on-save in your editor. Based on LLVM (matches the existing code).
 BasedOnStyle: LLVM
 Standard: c++20
-ColumnLimit: 120
-PointerAlignment: Right      # std::byte *buf;
+ColumnLimit: 80
+PointerAlignment: Right # std::byte *buf;
 IndentWidth: 2
-PackConstructorInitializers: Never   # one member-initializer per line
-BreakConstructorInitializers: BeforeColon  # leading ':' and ',' on each line
+PackConstructorInitializers: Never # one member-initializer per line
+BreakConstructorInitializers: BeforeColon # leading ':' and ',' on each line
+# LLVM defaults to `All`, which crams whole function bodies onto one line.
+# `Inline` keeps short accessors defined inside a class compact, but always
+# expands out-of-line definitions in .cpp files.
+AllowShortFunctionsOnASingleLine: Inline

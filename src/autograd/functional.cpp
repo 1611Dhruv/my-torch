@@ -17,7 +17,8 @@ void Variable::accumulate_grad(const Tensor &g) {
     }
   }
 
-  Tensor ng = (!reduce_along.empty() ? torch::sum(g, reduce_along, true) : g).reshape(_t.shape());
+  Tensor ng = (!reduce_along.empty() ? torch::sum(g, reduce_along, true) : g)
+                  .reshape(_t.shape());
   if (!_grad) {
     _grad = ng;
   } else {
@@ -67,8 +68,8 @@ void Variable::backward() {
 }
 
 VarPtr add(VarPtr a, VarPtr b) {
-  // Copy the backward by value and not reference (Reference ends at the end of endop)
-  // Copy the reference instead
+  // Copy the backward by value and not reference (Reference ends at the end of
+  // endop) Copy the reference instead
   auto backward = [a, b](const Tensor &g) -> void {
     a->accumulate_grad(g);
     b->accumulate_grad(g);
@@ -97,7 +98,9 @@ VarPtr div(VarPtr a, VarPtr b) {
   auto backward = [a, b](const Tensor &g) -> void {
     a->accumulate_grad(torch::div(g, b->data()));
     // -g * a / b^2
-    b->accumulate_grad(torch::mult(g, torch::neg(torch::div(a->data(), torch::mult(b->data(), b->data())))));
+    b->accumulate_grad(torch::mult(
+        g,
+        torch::neg(torch::div(a->data(), torch::mult(b->data(), b->data())))));
   };
   return Variable::fromOp(torch::div(a->data(), b->data()), {a, b}, backward);
 }
@@ -107,7 +110,8 @@ VarPtr matmul(VarPtr a, VarPtr b) {
     a->accumulate_grad(torch::matmul(g, b->data().transpose(-1, -2)));
     b->accumulate_grad(torch::matmul(a->data().transpose(-1, -2), g));
   };
-  return Variable::fromOp(torch::matmul(a->data(), b->data()), {a, b}, backward);
+  return Variable::fromOp(torch::matmul(a->data(), b->data()), {a, b},
+                          backward);
 }
 
 VarPtr sum(VarPtr a, std::vector<int64_t> dims = {}) {
@@ -116,6 +120,13 @@ VarPtr sum(VarPtr a, std::vector<int64_t> dims = {}) {
     a->accumulate_grad(g1);
   };
   return Variable::fromOp(torch::sum(a->data(), dims, false), {a}, backward);
+}
+
+VarPtr relu(VarPtr a) {
+  auto backward = [a](const Tensor &g) -> void {
+    a->accumulate_grad(torch::relu_back(a->data(), g));
+  };
+  return Variable::fromOp(torch::relu(a->data()), {a}, backward);
 }
 } // namespace autograd
 } // namespace torch

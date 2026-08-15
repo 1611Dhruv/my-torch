@@ -13,11 +13,14 @@ MSE::MSE(autograd::VarPtr pred, autograd::VarPtr act) {
   }
   VarPtr total = sum(sq, reduce_along);
   float ndim = act->data().numel();
-  VarPtr norm = Variable::leaf(Tensor({1}, reinterpret_cast<std::byte *>(&ndim)), false);
+  VarPtr norm =
+      Variable::leaf(Tensor({1}, reinterpret_cast<std::byte *>(&ndim)), false);
 
   _loss = div(total, norm);
 }
 
-void MSE::backward() { _loss->backward(); }
+void MSE::backward() {
+  _loss->backward();
+}
 
 } // namespace torch

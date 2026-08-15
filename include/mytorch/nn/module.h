@@ -50,6 +50,21 @@ private:
   std::shared_ptr<Variable> _bias;
 };
 
+class ReLU : public Module {
+public:
+  ReLU() {}
+  std::shared_ptr<Variable> forward(std::shared_ptr<Variable> inp) override { return torch::autograd::relu(inp); };
+};
+
+class Sequential : public Module {
+public:
+  Sequential(std::initializer_list<std::shared_ptr<Module>> modules);
+  std::shared_ptr<Variable> forward(std::shared_ptr<Variable> inp) override;
+
+private:
+  std::vector<std::shared_ptr<Module>> _modules;
+};
+
 } // namespace nn
 } // namespace torch
 

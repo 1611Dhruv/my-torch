@@ -26,11 +26,19 @@ Storage::Storage(size_t num_bytes, Device device)
       _size(num_bytes),
       _device(device) {}
 
-std::byte *Storage::get() { return _buffer; }
-const std::byte *Storage::get() const { return _buffer; }
+std::byte *Storage::get() {
+  return _buffer;
+}
+const std::byte *Storage::get() const {
+  return _buffer;
+}
 
-size_t Storage::size() const { return _size; }
-Device Storage::device() const { return _device; }
+size_t Storage::size() const {
+  return _size;
+}
+Device Storage::device() const {
+  return _device;
+}
 size_t Storage::use_count() const {
   if (!_refcount)
     return 0;
@@ -47,7 +55,9 @@ void Storage::release() {
   }
 }
 
-Storage::~Storage() { release(); }
+Storage::~Storage() {
+  release();
+}
 
 // Copy shares the buffer so a Tensor's views point at the same bytes.
 Storage::Storage(const Storage &other)

@@ -11,7 +11,8 @@ namespace torch {
 namespace cuda {
 
 template <typename scalar_t, typename Op>
-__global__ void binary_kernel(const scalar_t *a, const scalar_t *b, scalar_t *out, int64_t n, Op op) {
+__global__ void binary_kernel(const scalar_t *a, const scalar_t *b,
+                              scalar_t *out, int64_t n, Op op) {
   int64_t i = blockIdx.x * blockDim.x + threadIdx.x;
 
   if (i >= n)
@@ -21,7 +22,8 @@ __global__ void binary_kernel(const scalar_t *a, const scalar_t *b, scalar_t *ou
 }
 
 template <typename scalar_t, typename Op>
-__global__ void unary_kernel(const scalar_t *a, scalar_t *out, int64_t n, Op op) {
+__global__ void unary_kernel(const scalar_t *a, scalar_t *out, int64_t n,
+                             Op op) {
   int64_t i = blockIdx.x * blockDim.x + threadIdx.x;
 
   if (i >= n)
@@ -31,10 +33,12 @@ __global__ void unary_kernel(const scalar_t *a, scalar_t *out, int64_t n, Op op)
 }
 
 // Added support for non contiguous element wise ops
-// Dont care about internal offsets, can assume data_ptr returns start of this tensor
+// Dont care about internal offsets, can assume data_ptr returns start of this
+// tensor
 
 template <typename scalar_t, typename Op>
-__global__ void binary_kernel_strided(const scalar_t *a, const scalar_t *b, scalar_t *out, int64_t n, Op op,
+__global__ void binary_kernel_strided(const scalar_t *a, const scalar_t *b,
+                                      scalar_t *out, int64_t n, Op op,
                                       BinaryStridedDims strides) {
   int64_t i = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -44,7 +48,8 @@ __global__ void binary_kernel_strided(const scalar_t *a, const scalar_t *b, scal
   int64_t a_i = 0;
   int64_t b_i = 0;
 
-  // Idea is to convert i -> [] [] [] <-- coords and use these coords to generate a and b's offsets
+  // Idea is to convert i -> [] [] [] <-- coords and use these coords to
+  // generate a and b's offsets
   int64_t curr = i;
   for (int64_t j = strides.ndim - 1; j >= 0; j--) {
     int64_t coord = curr % strides.shape[j];
@@ -59,7 +64,9 @@ __global__ void binary_kernel_strided(const scalar_t *a, const scalar_t *b, scal
 }
 
 template <typename scalar_t, typename Op>
-__global__ void unary_kernel_strided(const scalar_t *a, scalar_t *out, int64_t n, Op op, UnaryStridedDims strides) {
+__global__ void unary_kernel_strided(const scalar_t *a, scalar_t *out,
+                                     int64_t n, Op op,
+                                     UnaryStridedDims strides) {
   int64_t i = blockIdx.x * blockDim.x + threadIdx.x;
 
   if (i >= n)
@@ -76,7 +83,9 @@ __global__ void unary_kernel_strided(const scalar_t *a, scalar_t *out, int64_t n
   out[i] = op(a[a_i]);
 }
 
-template <typename Op> Tensor elementwise_binary_wrapper(const Tensor &a, const Tensor &b, Tensor &out, Op op) {
+template <typename Op>
+Tensor elementwise_binary_wrapper(const Tensor &a, const Tensor &b, Tensor &out,
+                                  Op op) {
   assert(a.dtype() == b.dtype());
 
   int64_t n = a.numel();
@@ -88,10 +97,12 @@ template <typename Op> Tensor elementwise_binary_wrapper(const Tensor &a, const 
     const auto &stride_a = a.strides();
     const auto &stride_b = b.strides();
 
-    // Max we support is 8 dims for now, if you need more you seem to have issues....
+    // Max we support is 8 dims for now, if you need more you seem to have
+    // issues....
     if (shape.size() > MAX_DIM) {
       std::ostringstream oss;
-      oss << "cuda binary: support only maximum of " << MAX_DIM << " dim shapes";
+      oss << "cuda binary: support only maximum of " << MAX_DIM
+          << " dim shapes";
       throw std::invalid_argument(oss.str());
     }
 
@@ -104,14 +115,16 @@ template <typename Op> Tensor elementwise_binary_wrapper(const Tensor &a, const 
       stride.b_strides[i] = stride_b[i];
     }
     DISPATCH_OP(a.dtype(), [&] {
-      binary_kernel_strided<scalar_t><<<blocks, threads>>>(a.data_ptr<scalar_t>(), b.data_ptr<scalar_t>(),
-                                                           out.data_ptr<scalar_t>(), n, op, stride);
+      binary_kernel_strided<scalar_t>
+          <<<blocks, threads>>>(a.data_ptr<scalar_t>(), b.data_ptr<scalar_t>(),
+                                out.data_ptr<scalar_t>(), n, op, stride);
     });
   } else {
     // Both are contiguous so just directly use quick kernel
     DISPATCH_OP(a.dtype(), [&] {
       binary_kernel<scalar_t>
-          <<<blocks, threads>>>(a.data_ptr<scalar_t>(), b.data_ptr<scalar_t>(), out.data_ptr<scalar_t>(), n, op);
+          <<<blocks, threads>>>(a.data_ptr<scalar_t>(), b.data_ptr<scalar_t>(),
+                                out.data_ptr<scalar_t>(), n, op);
     });
   }
 
@@ -120,21 +133,26 @@ template <typename Op> Tensor elementwise_binary_wrapper(const Tensor &a, const 
 }
 
 Tensor add(const Tensor &a, const Tensor &b, Tensor &out) {
-  return elementwise_binary_wrapper(a, b, out, [] __device__(auto x, auto y) { return x + y; });
+  return elementwise_binary_wrapper(
+      a, b, out, [] __device__(auto x, auto y) { return x + y; });
 }
 
 Tensor sub(const Tensor &a, const Tensor &b, Tensor &out) {
-  return elementwise_binary_wrapper(a, b, out, [] __device__(auto x, auto y) { return x - y; });
+  return elementwise_binary_wrapper(
+      a, b, out, [] __device__(auto x, auto y) { return x - y; });
 }
 
 Tensor mult(const Tensor &a, const Tensor &b, Tensor &out) {
-  return elementwise_binary_wrapper(a, b, out, [] __device__(auto x, auto y) { return x * y; });
+  return elementwise_binary_wrapper(
+      a, b, out, [] __device__(auto x, auto y) { return x * y; });
 }
 Tensor div(const Tensor &a, const Tensor &b, Tensor &out) {
-  return elementwise_binary_wrapper(a, b, out, [] __device__(auto x, auto y) { return x / y; });
+  return elementwise_binary_wrapper(
+      a, b, out, [] __device__(auto x, auto y) { return x / y; });
 }
 
-template <typename Op> Tensor elementwise_unary_wrapper(const Tensor &a, Tensor &out, Op op) {
+template <typename Op>
+Tensor elementwise_unary_wrapper(const Tensor &a, Tensor &out, Op op) {
   int64_t n = a.numel();
   int threads = 256;
   int64_t blocks = (n + threads - 1) / threads;
@@ -142,7 +160,8 @@ template <typename Op> Tensor elementwise_unary_wrapper(const Tensor &a, Tensor 
   if (!a.is_contiguous()) {
     if (a.shape().size() > MAX_DIM) {
       std::ostringstream oss;
-      oss << "cuda binary: support only maximum of " << MAX_DIM << " dim shapes";
+      oss << "cuda binary: support only maximum of " << MAX_DIM
+          << " dim shapes";
       throw std::invalid_argument(oss.str());
       ;
     }
@@ -154,12 +173,13 @@ template <typename Op> Tensor elementwise_unary_wrapper(const Tensor &a, Tensor 
     }
 
     DISPATCH_OP(a.dtype(), [&] {
-      unary_kernel_strided<scalar_t>
-          <<<blocks, threads>>>(a.data_ptr<scalar_t>(), out.data_ptr<scalar_t>(), n, op, stride);
+      unary_kernel_strided<scalar_t><<<blocks, threads>>>(
+          a.data_ptr<scalar_t>(), out.data_ptr<scalar_t>(), n, op, stride);
     });
   } else {
     DISPATCH_OP(a.dtype(), [&] {
-      unary_kernel<scalar_t><<<blocks, threads>>>(a.data_ptr<scalar_t>(), out.data_ptr<scalar_t>(), n, op);
+      unary_kernel<scalar_t><<<blocks, threads>>>(
+          a.data_ptr<scalar_t>(), out.data_ptr<scalar_t>(), n, op);
     });
   }
 
@@ -169,27 +189,47 @@ template <typename Op> Tensor elementwise_unary_wrapper(const Tensor &a, Tensor 
 }
 
 Tensor neg(const Tensor &a, Tensor &out) {
-  return elementwise_unary_wrapper(a, out, [] __device__(auto x) { return -x; });
+  return elementwise_unary_wrapper(a, out,
+                                   [] __device__(auto x) { return -x; });
 }
 
 Tensor sin(const Tensor &a, Tensor &out) {
-  return elementwise_unary_wrapper(a, out, [] __device__(auto x) { return sinf(x); });
+  return elementwise_unary_wrapper(a, out,
+                                   [] __device__(auto x) { return sinf(x); });
 }
 
 Tensor cos(const Tensor &a, Tensor &out) {
-  return elementwise_unary_wrapper(a, out, [] __device__(auto x) { return cosf(x); });
+  return elementwise_unary_wrapper(a, out,
+                                   [] __device__(auto x) { return cosf(x); });
 }
 
 Tensor exp(const Tensor &a, Tensor &out) {
-  return elementwise_unary_wrapper(a, out, [] __device__(auto x) { return expf(x); });
+  return elementwise_unary_wrapper(a, out,
+                                   [] __device__(auto x) { return expf(x); });
 }
 
 Tensor contiguous(const Tensor &a, Tensor &out) {
   return elementwise_unary_wrapper(a, out, [] __device__(auto x) { return x; });
 }
 
-template <typename scalar_t> Tensor fill(const Tensor &a, Tensor &out, scalar_t t) {
-  return elementwise_unary_wrapper(a, out, [t] __device__(auto x) { return t; });
+template <typename scalar_t>
+Tensor fill(const Tensor &a, Tensor &out, scalar_t t) {
+  return elementwise_unary_wrapper(a, out,
+                                   [t] __device__(auto x) { return t; });
+}
+
+// Special Kernels
+Tensor relu(const Tensor &a, Tensor &out) {
+  return elementwise_unary_wrapper(a, out, [] __device__(auto x) {
+    // max(a,b) =
+    // (a + b) / 2 + abs(a - b) / 2
+    // a/2 + b/2 + a/2 - b/2
+    return (x + abs(x)) / 2;
+  });
+}
+Tensor relu_back(const Tensor &a, const Tensor &g, Tensor &out) {
+  return elementwise_binary_wrapper(
+      a, g, out, [] __device__(auto x, auto y) { return (x > 0) ? y : 0; });
 }
 
 } // namespace cuda

@@ -17,6 +17,10 @@ Tensor sin(const Tensor &a);
 Tensor cos(const Tensor &a);
 Tensor exp(const Tensor &a);
 
+// Special Fused kernels
+Tensor relu(const Tensor &a);
+Tensor relu_back(const Tensor &a, const Tensor &g);
+
 // Reductions
 Tensor sum(const Tensor &a, std::vector<int64_t> dims, bool keep_dim = true);
 /*
@@ -46,6 +50,10 @@ Tensor exp(const Tensor &a, Tensor &out);
 // Reductions
 // NOTE: Always keeps dim = true
 Tensor sum(const Tensor &a, Tensor &out, const std::vector<int64_t> &dims);
+
+// Special fused kernels
+Tensor relu(const Tensor &a, Tensor &out);
+Tensor relu_back(const Tensor &a, const Tensor &g, Tensor &out);
 
 /*
  NOTE: Future
@@ -79,6 +87,9 @@ template <typename scalar_t> Tensor fill(const Tensor &a, Tensor &out, scalar_t 
 // NOTE: Always keeps dim = true
 Tensor sum(const Tensor &a, Tensor &out, const std::vector<int64_t> &dims);
 
+// Special fused kernels
+Tensor relu(const Tensor &a, Tensor &out);
+Tensor relu_back(const Tensor &a, const Tensor &g, Tensor &out);
 /*
  NOTE: Future
 Tensor ln(Tensor &a);

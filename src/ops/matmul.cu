@@ -15,11 +15,13 @@ namespace cuda {
  * Accounts for original ones being transposed or not
  */
 
-template <typename scalar_t, const bool a_transp, const bool b_transp, const int BM = 128, const int BN = 128,
-          const int BK = 4, const int WM = 64, const int WN = 64, const int TM = 8, const int TN = 4,
-          const int WN_ITER = 2>
-__global__ void matmul_kernel(const scalar_t *__restrict__ A, const scalar_t *__restrict__ B, scalar_t *__restrict__ C,
-                              int64_t M, int64_t K, int64_t N) {
+template <typename scalar_t, const bool a_transp, const bool b_transp,
+          const int BM = 128, const int BN = 128, const int BK = 4,
+          const int WM = 64, const int WN = 64, const int TM = 8,
+          const int TN = 4, const int WN_ITER = 2>
+__global__ void
+matmul_kernel(const scalar_t *__restrict__ A, const scalar_t *__restrict__ B,
+              scalar_t *__restrict__ C, int64_t M, int64_t K, int64_t N) {
   // +1 padding for non coalasced things
   __shared__ scalar_t As[2][BK][BM + 1];
   __shared__ scalar_t Bs[2][BK][BN + 1];
@@ -31,8 +33,10 @@ __global__ void matmul_kernel(const scalar_t *__restrict__ A, const scalar_t *__
   constexpr int WM_STMP = LANE_ROWS * TM;
   constexpr int WN_STMP = LANE_COLS * TN;
 
-  static_assert(WM_ITER * WN_ITER * TM * TN * 32 == WM * WN, "The warp tiled configuration do not match");
-  static_assert(LANE_ROWS * LANE_COLS == 32, "The warp must have only 32 lanes");
+  static_assert(WM_ITER * WN_ITER * TM * TN * 32 == WM * WN,
+                "The warp tiled configuration do not match");
+  static_assert(LANE_ROWS * LANE_COLS == 32,
+                "The warp must have only 32 lanes");
 
   int64_t A_batch_off = blockIdx.z * M * K;
   int64_t B_batch_off = blockIdx.z * K * N;
@@ -59,7 +63,8 @@ __global__ void matmul_kernel(const scalar_t *__restrict__ A, const scalar_t *__
 
         int gr = koff + lr;
         int gc = roff + lc;
-        As[pw][lr][lc] = (gr < K && gc < M) ? A[A_batch_off + gr * M + gc] : scalar_t{};
+        As[pw][lr][lc] =
+            (gr < K && gc < M) ? A[A_batch_off + gr * M + gc] : scalar_t{};
       }
     } else {
       for (int i = tid; i < BK * BM; i += tt) {
@@ -68,7 +73,8 @@ __global__ void matmul_kernel(const scalar_t *__restrict__ A, const scalar_t *__
 
         int gr = roff + lr;
         int gc = koff + lc;
-        As[pw][lc][lr] = (gr < M && gc < K) ? A[A_batch_off + gr * K + gc] : scalar_t{};
+        As[pw][lc][lr] =
+            (gr < M && gc < K) ? A[A_batch_off + gr * K + gc] : scalar_t{};
       }
     }
   };
@@ -81,7 +87,8 @@ __global__ void matmul_kernel(const scalar_t *__restrict__ A, const scalar_t *__
 
         int gr = coff + lr;
         int gc = koff + lc;
-        Bs[pw][lc][lr] = (gr < N && gc < K) ? B[B_batch_off + gr * K + gc] : scalar_t{};
+        Bs[pw][lc][lr] =
+            (gr < N && gc < K) ? B[B_batch_off + gr * K + gc] : scalar_t{};
       }
     } else {
       for (int i = tid; i < BK * BN; i += tt) {
@@ -90,7 +97,8 @@ __global__ void matmul_kernel(const scalar_t *__restrict__ A, const scalar_t *__
 
         int gr = koff + lr;
         int gc = coff + lc;
-        Bs[pw][lr][lc] = (gr < K && gc < N) ? B[B_batch_off + gr * N + gc] : scalar_t{};
+        Bs[pw][lr][lc] =
+            (gr < K && gc < N) ? B[B_batch_off + gr * N + gc] : scalar_t{};
       }
     }
   };
@@ -165,7 +173,8 @@ __global__ void matmul_kernel(const scalar_t *__restrict__ A, const scalar_t *__
   }
 }
 
-static std::pair<bool, bool> verify_contiguity(const Tensor &a, const Tensor &b) {
+static std::pair<bool, bool> verify_contiguity(const Tensor &a,
+                                               const Tensor &b) {
   int AS = a.shape().size();
   int BS = b.shape().size();
 
@@ -175,8 +184,10 @@ static std::pair<bool, bool> verify_contiguity(const Tensor &a, const Tensor &b)
     return {false, false};
   }
 
-  bool a_transp = (a.strides()[AS - 2] == 1 && a.strides()[AS - 1] == a.shape()[AS - 2]);
-  bool b_transp = (b.strides()[BS - 2] == 1 && b.strides()[BS - 1] == b.shape()[BS - 2]);
+  bool a_transp =
+      (a.strides()[AS - 2] == 1 && a.strides()[AS - 1] == a.shape()[AS - 2]);
+  bool b_transp =
+      (b.strides()[BS - 2] == 1 && b.strides()[BS - 1] == b.shape()[BS - 2]);
   if ((!a_contig && !a_transp) || (!b_contig && !b_transp)) {
     throw std::invalid_argument("matmul cuda: Passed in tensors are non "
                                 "contiguous and cant be treated as transposes");
@@ -185,7 +196,8 @@ static std::pair<bool, bool> verify_contiguity(const Tensor &a, const Tensor &b)
   return {a_transp, b_transp};
 }
 
-Tensor matmul(const Tensor &a, const Tensor &b, Tensor &out, int64_t B, int64_t M, int64_t K, int64_t N) {
+Tensor matmul(const Tensor &a, const Tensor &b, Tensor &out, int64_t B,
+              int64_t M, int64_t K, int64_t N) {
   assert(a.dtype() == b.dtype());
   assert(a.device() == Device::CUDA);
 
@@ -198,16 +210,20 @@ Tensor matmul(const Tensor &a, const Tensor &b, Tensor &out, int64_t B, int64_t 
   DISPATCH_OP(a.dtype(), [&] {
     if (at && bt) {
       matmul_kernel<scalar_t, true, true>
-          <<<grid, block>>>(a.data_ptr<scalar_t>(), b.data_ptr<scalar_t>(), out.data_ptr<scalar_t>(), M, K, N);
+          <<<grid, block>>>(a.data_ptr<scalar_t>(), b.data_ptr<scalar_t>(),
+                            out.data_ptr<scalar_t>(), M, K, N);
     } else if (at && !bt) {
       matmul_kernel<scalar_t, true, false>
-          <<<grid, block>>>(a.data_ptr<scalar_t>(), b.data_ptr<scalar_t>(), out.data_ptr<scalar_t>(), M, K, N);
+          <<<grid, block>>>(a.data_ptr<scalar_t>(), b.data_ptr<scalar_t>(),
+                            out.data_ptr<scalar_t>(), M, K, N);
     } else if (!at && bt) {
       matmul_kernel<scalar_t, false, true>
-          <<<grid, block>>>(a.data_ptr<scalar_t>(), b.data_ptr<scalar_t>(), out.data_ptr<scalar_t>(), M, K, N);
+          <<<grid, block>>>(a.data_ptr<scalar_t>(), b.data_ptr<scalar_t>(),
+                            out.data_ptr<scalar_t>(), M, K, N);
     } else {
       matmul_kernel<scalar_t, false, false>
-          <<<grid, block>>>(a.data_ptr<scalar_t>(), b.data_ptr<scalar_t>(), out.data_ptr<scalar_t>(), M, K, N);
+          <<<grid, block>>>(a.data_ptr<scalar_t>(), b.data_ptr<scalar_t>(),
+                            out.data_ptr<scalar_t>(), M, K, N);
     }
   });
 

@@ -6,7 +6,8 @@ namespace torch {
 namespace cuda {
 
 template <typename scalar_t, typename ReduceOp>
-__global__ void reduce(const scalar_t *inp, scalar_t *out, ReduceDims dim, ReduceOp op, scalar_t ident) {
+__global__ void reduce(const scalar_t *inp, scalar_t *out, ReduceDims dim,
+                       ReduceOp op, scalar_t ident) {
   int tid = threadIdx.x;
   int blk = blockIdx.x * blockDim.x;
   int64_t koff = 0;
@@ -51,7 +52,9 @@ __global__ void reduce(const scalar_t *inp, scalar_t *out, ReduceDims dim, Reduc
 }
 
 template <typename scalar_t, typename ReduceOp>
-void reduce_helper(const Tensor &a, Tensor &out, const std::vector<int64_t> &dims, scalar_t ident, ReduceOp op) {
+void reduce_helper(const Tensor &a, Tensor &out,
+                   const std::vector<int64_t> &dims, scalar_t ident,
+                   ReduceOp op) {
   if (dims.size() > MAX_DIM) {
     throw std::invalid_argument("too many reduce dims on GPU, you have issues");
   }
@@ -82,13 +85,15 @@ void reduce_helper(const Tensor &a, Tensor &out, const std::vector<int64_t> &dim
   int64_t outs = out.numel();
   constexpr int T = 256;
   const int64_t grid = (outs + T - 1) / T;
-  reduce<<<grid, T>>>(a.data_ptr<scalar_t>(), out.data_ptr<scalar_t>(), red_dim, op, ident);
+  reduce<<<grid, T>>>(a.data_ptr<scalar_t>(), out.data_ptr<scalar_t>(), red_dim,
+                      op, ident);
   CUDA_CHECK(cudaGetLastError());
 }
 
 Tensor sum(const Tensor &a, Tensor &out, const std::vector<int64_t> &dims) {
   DISPATCH_OP(a.dtype(), [&]() {
-    reduce_helper(a, out, dims, static_cast<scalar_t>(0), [] __device__(scalar_t x, scalar_t y) { return x + y; });
+    reduce_helper(a, out, dims, static_cast<scalar_t>(0),
+                  [] __device__(scalar_t x, scalar_t y) { return x + y; });
   });
   return out;
 }

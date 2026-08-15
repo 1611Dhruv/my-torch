@@ -6,7 +6,9 @@ namespace torch {
 namespace cpu {
 
 template <typename scalar_t, typename ReduceFn>
-Tensor reduce(const Tensor &a, Tensor &out, const std::vector<int64_t> reduce_dim, ReduceFn reduce_op, scalar_t init) {
+Tensor reduce(const Tensor &a, Tensor &out,
+              const std::vector<int64_t> reduce_dim, ReduceFn reduce_op,
+              scalar_t init) {
   /*
    * Iterate over all the elements in the frame :)
    */
@@ -25,8 +27,9 @@ Tensor reduce(const Tensor &a, Tensor &out, const std::vector<int64_t> reduce_di
   std::vector<int64_t> k_idx(keep_dim.size(), 0);
 
   int64_t out_off = 0;
-  auto incr = [&a, &out, &out_off](const std::vector<int64_t> &dim, std::vector<int64_t> &idx, int64_t &off, bool &done,
-                                   bool update_out = false) {
+  auto incr = [&a, &out, &out_off](const std::vector<int64_t> &dim,
+                                   std::vector<int64_t> &idx, int64_t &off,
+                                   bool &done, bool update_out = false) {
     int d = dim.size() - 1;
     if (d < 0) {
       done = true;
@@ -76,8 +79,11 @@ Tensor reduce(const Tensor &a, Tensor &out, const std::vector<int64_t> reduce_di
 }
 
 Tensor sum(const Tensor &a, Tensor &out, const std::vector<int64_t> &dims) {
-  DISPATCH_OP(a.dtype(),
-              [&]() { reduce(a, out, dims, [&](scalar_t x, scalar_t y) { return x + y; }, static_cast<scalar_t>(0)); });
+  DISPATCH_OP(a.dtype(), [&]() {
+    reduce(
+        a, out, dims, [&](scalar_t x, scalar_t y) { return x + y; },
+        static_cast<scalar_t>(0));
+  });
   return out;
 }
 
