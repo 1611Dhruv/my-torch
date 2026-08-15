@@ -165,7 +165,7 @@ template <typename T> const T *Tensor::data_ptr() const {
     break;                                                                     \
   }                                                                            \
   case torch::DType::Float64: {                                                \
-    using SCALAR_NAME = uint8_t;                                               \
+    using SCALAR_NAME = double;                                                \
     __VA_ARGS__();                                                             \
     break;                                                                     \
   }                                                                            \
