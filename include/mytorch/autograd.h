@@ -71,6 +71,7 @@ VarPtr exp(VarPtr a);
 VarPtr ln(VarPtr a);
 VarPtr sqrt(VarPtr a);
 VarPtr scale(VarPtr a, double s);
+VarPtr shift(VarPtr a, double s);
 
 VarPtr sum(VarPtr a, std::vector<int64_t> dims = {}, bool keep_dim = false);
 VarPtr max(VarPtr a, std::vector<int64_t> dims = {}, bool keep_dim = false);

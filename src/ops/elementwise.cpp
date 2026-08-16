@@ -200,6 +200,14 @@ Tensor scale(const Tensor &a, Tensor &out, double s) {
   });
   return out;
 }
+
+Tensor shift(const Tensor &a, Tensor &out, double s) {
+  DISPATCH_OP(a.dtype(), [&] {
+    unary_elementwise<scalar_t>(
+        a, out, [s](scalar_t x) { return x + static_cast<scalar_t>(s); });
+  });
+  return out;
+}
 Tensor sin(const Tensor &a, Tensor &out) {
   DISPATCH_OP(a.dtype(), [&] {
     if constexpr (!std::is_floating_point_v<scalar_t>) {

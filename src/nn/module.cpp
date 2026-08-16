@@ -1,6 +1,9 @@
+#include "mytorch/autograd.h"
 #include <cmath>
 #include <mytorch/nn/module.h>
 #include <string>
+
+static constexpr double eps = 1e-9;
 
 namespace torch {
 namespace nn {
@@ -82,6 +85,39 @@ ag::VarPtr Sequential::forward(ag::VarPtr inp) {
     out = m->forward(out);
   }
   return out;
+}
+
+// Layer Norm
+LayerNorm::LayerNorm(int64_t in_dim, DType dtype, Device dev) {
+  _gain = register_param(
+      "gain", ag::Variable::leaf(Tensor::ones({in_dim}, dtype, dev)));
+  _bias = register_param(
+      "bias", ag::Variable::leaf(Tensor::zeros({in_dim}, dtype, dev)));
+}
+
+ag::VarPtr LayerNorm::forward(ag::VarPtr x) {
+  double H = x->data().shape().back();
+  auto x_mean = ag::scale(ag::sum(x, {-1}, true), 1 / H);
+  auto x_cent = ag::sub(x, x_mean);
+  auto x_sd = ag::sqrt(ag::shift(
+      ag::scale(ag::sum(ag::mult(x_cent, x_cent), {-1}, true), 1.0 / H), eps));
+
+  auto x_norm = ag::div(x_cent, x_sd);
+  return ag::add(ag::mult(_gain, x_norm), _bias);
+}
+
+// RMS Norm
+RMSNorm::RMSNorm(int64_t in_dim, DType dtype, Device dev) {
+  _gain = register_param(
+      "gain", ag::Variable::leaf(Tensor::ones({in_dim}, dtype, dev)));
+}
+
+ag::VarPtr RMSNorm::forward(ag::VarPtr x) {
+  double H = x->data().shape().back();
+  auto rms = ag::sqrt(
+      ag::shift(ag::scale(ag::sum(ag::mult(x, x), {-1}, true), 1 / H), eps));
+  auto norm = ag::div(x, rms);
+  return ag::mult(_gain, norm);
 }
 
 } // namespace nn

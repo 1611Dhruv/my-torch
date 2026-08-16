@@ -222,6 +222,12 @@ VarPtr scale(VarPtr a, double s) {
   return Variable::fromOp(torch::scale(a->data(), s), {a}, backward);
 }
 
+VarPtr shift(VarPtr a, double s) {
+  auto backward = [a, s](const Tensor &g) -> void { a->accumulate_grad(g); };
+
+  return Variable::fromOp(torch::shift(a->data(), s), {a}, backward);
+}
+
 VarPtr softmax(VarPtr a, int64_t dim) {
   namespace ag = torch::autograd;
   auto mx = ag::max(a, {dim}, true);

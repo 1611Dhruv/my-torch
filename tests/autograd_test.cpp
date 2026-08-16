@@ -312,9 +312,20 @@ TEST(AutogradNumerical, Scale) {
   auto a = torch::Tensor::randn({2, 3, 4}).to(torch::DType::Float64,
                                               torch::Device::CPU);
   double pi = 3.14159265359;
-  gradient_check("Scale",
+  gradient_check("scale",
                  [&](std::vector<torch::autograd::VarPtr> inps) {
                    return torch::autograd::scale(inps[0], pi);
+                 },
+                 {a});
+}
+
+TEST(AutogradNumerical, Shift) {
+  auto a = torch::Tensor::randn({2, 3, 4}).to(torch::DType::Float64,
+                                              torch::Device::CPU);
+  double pi = 3.14159265359;
+  gradient_check("shift",
+                 [&](std::vector<torch::autograd::VarPtr> inps) {
+                   return torch::autograd::shift(inps[0], pi);
                  },
                  {a});
 }
@@ -661,6 +672,17 @@ TEST(AutogradNumericalCuda, Scale) {
                  {a});
 }
 
+TEST(AutogradNumericalCuda, Shift) {
+  auto a = torch::Tensor::randn({2, 3, 4}).to(torch::DType::Float64,
+                                              torch::Device::CUDA);
+  double pi = 3.14159265359;
+  gradient_check("cuda shift",
+                 [&](std::vector<torch::autograd::VarPtr> inps) {
+                   return torch::autograd::shift(inps[0], pi);
+                 },
+                 {a});
+}
+
 TEST(AutogradNumericalCuda, ReLU) {
   gradient_check("cuda relu",
                  [](std::vector<ag::VarPtr> in) { return ag::relu(in[0]); },
@@ -750,12 +772,14 @@ TEST(AutogradNumerical, SumAllAxes) {
 // ===========================================================================
 
 // Every slice along the last axis of a contiguous tensor must sum to 1.
-static void expect_rows_normalized(const Tensor &y, int64_t rows, int64_t cols) {
+static void expect_rows_normalized(const Tensor &y, int64_t rows,
+                                   int64_t cols) {
   for (int64_t r = 0; r < rows; ++r) {
     double s = 0.0;
     for (int64_t c = 0; c < cols; ++c) {
       double v = elem_get(y, r * cols + c);
-      ASSERT_TRUE(std::isfinite(v)) << "non-finite at row " << r << " col " << c;
+      ASSERT_TRUE(std::isfinite(v))
+          << "non-finite at row " << r << " col " << c;
       EXPECT_GT(v, 0.0) << "softmax outputs must be positive";
       s += v;
     }

@@ -233,6 +233,11 @@ Tensor scale(const Tensor &a, Tensor &out, double s) {
                                    [s] __device__(auto x) { return x * s; });
 }
 
+Tensor shift(const Tensor &a, Tensor &out, double s) {
+  return elementwise_unary_wrapper(a, out,
+                                   [s] __device__(auto x) { return x + s; });
+}
+
 Tensor contiguous(const Tensor &a, Tensor &out) {
   return elementwise_unary_wrapper(a, out, [] __device__(auto x) { return x; });
 }

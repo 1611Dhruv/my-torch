@@ -1,6 +1,7 @@
 #ifndef NN_MODULE_H
 #define NN_MODULE_H
 #include "mytorch/autograd.h"
+#include "mytorch/tensor.h"
 #include <vector>
 
 namespace torch {
@@ -68,6 +69,25 @@ public:
 
 private:
   std::vector<std::shared_ptr<Module>> _layers;
+};
+
+class LayerNorm : public Module {
+public:
+  LayerNorm(int64_t in_dim, DType dtype = DType::Float32, Device dev = CPU);
+  ag::VarPtr forward(ag::VarPtr inp) override;
+
+private:
+  ag::VarPtr _gain;
+  ag::VarPtr _bias;
+};
+
+class RMSNorm : public Module {
+public:
+  RMSNorm(int64_t in_dim, DType dtype = DType::Float32, Device dev = CPU);
+  ag::VarPtr forward(ag::VarPtr inp) override;
+
+private:
+  ag::VarPtr _gain;
 };
 
 } // namespace nn

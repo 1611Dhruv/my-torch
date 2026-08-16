@@ -19,6 +19,7 @@ Tensor exp(const Tensor &a);
 Tensor ln(const Tensor &a);
 Tensor sqrt(const Tensor &a);
 Tensor scale(const Tensor &a, double scalar);
+Tensor shift(const Tensor &a, double scalar);
 
 // Special Fused kernels
 Tensor relu(const Tensor &a);
@@ -54,6 +55,7 @@ Tensor exp(const Tensor &a, Tensor &out);
 Tensor ln(const Tensor &a, Tensor &out);
 Tensor sqrt(const Tensor &a, Tensor &out);
 Tensor scale(const Tensor &a, Tensor &out, double scalar);
+Tensor shift(const Tensor &a, Tensor &out, double scalar);
 
 // Reductions
 // NOTE: Always keeps dim = true
@@ -91,7 +93,9 @@ Tensor cos(const Tensor &a, Tensor &out);
 Tensor exp(const Tensor &a, Tensor &out);
 Tensor ln(const Tensor &a, Tensor &out);
 Tensor sqrt(const Tensor &a, Tensor &out);
+
 Tensor scale(const Tensor &a, Tensor &out, double scalar);
+Tensor shift(const Tensor &a, Tensor &out, double scalar);
 
 Tensor contiguous(const Tensor &a, Tensor &out);
 template <typename scalar_t>
