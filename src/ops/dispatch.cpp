@@ -80,6 +80,17 @@ Tensor elementwise_unary_dispatch(const Tensor &a, CpuFn cpu_op,
     return cpu_op(a, out);
 }
 
+template <typename CpuFn, typename CudaFn>
+Tensor elementwise_scalar_dispatch(const Tensor &a, CpuFn cpu_op,
+                                   CudaFn cuda_op, double scalar) {
+  Tensor out(a.shape(), a.dtype(), a.device());
+
+  if (a.device() == CUDA)
+    return cuda_op(a, out, scalar);
+  else
+    return cpu_op(a, out, scalar);
+}
+
 Tensor neg(const Tensor &a) {
   return elementwise_unary_dispatch(a, cpu::neg, cuda::neg);
 }
@@ -95,6 +106,14 @@ Tensor exp(const Tensor &a) {
 
 Tensor ln(const Tensor &a) {
   return elementwise_unary_dispatch(a, cpu::ln, cuda::ln);
+}
+
+Tensor sqrt(const Tensor &a) {
+  return elementwise_unary_dispatch(a, cpu::sqrt, cuda::sqrt);
+}
+
+Tensor scale(const Tensor &a, double scalar) {
+  return elementwise_scalar_dispatch(a, cpu::scale, cuda::scale, scalar);
 }
 
 // The matmul backends can consume a tensor whose last two dims are swapped on

@@ -69,12 +69,16 @@ VarPtr sin(VarPtr &a);
 VarPtr cos(VarPtr &a);
 VarPtr exp(VarPtr &a);
 VarPtr ln(VarPtr &a);
+VarPtr sqrt(VarPtr &a);
+VarPtr scale(VarPtr &a, double s);
 
 VarPtr sum(VarPtr a, std::vector<int64_t> dims = {});
 VarPtr max(VarPtr a, std::vector<int64_t> dims = {});
 
 VarPtr transpose(VarPtr a, int64_t dim1, int64_t dim2);
 VarPtr reshape(VarPtr a, std::vector<int64_t> dims);
+
+VarPtr softmax(VarPtr a);
 
 // Performs elementwise div
 VarPtr div(VarPtr a, VarPtr b);

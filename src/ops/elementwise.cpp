@@ -179,6 +179,27 @@ Tensor ln(const Tensor &a, Tensor &out) {
   });
   return out;
 }
+
+Tensor sqrt(const Tensor &a, Tensor &out) {
+  DISPATCH_OP(a.dtype(), [&] {
+    if constexpr (!std::is_floating_point_v<scalar_t>) {
+      throw std::invalid_argument("Called elementwise_unary_wrapper which is "
+                                  "float only on a non float type");
+    } else {
+      unary_elementwise<scalar_t>(a, out,
+                                  [](scalar_t x) { return std::sqrt(x); });
+    }
+  });
+  return out;
+}
+
+Tensor scale(const Tensor &a, Tensor &out, double s) {
+  DISPATCH_OP(a.dtype(), [&] {
+    unary_elementwise<scalar_t>(
+        a, out, [s](scalar_t x) { return x * static_cast<scalar_t>(s); });
+  });
+  return out;
+}
 Tensor sin(const Tensor &a, Tensor &out) {
   DISPATCH_OP(a.dtype(), [&] {
     if constexpr (!std::is_floating_point_v<scalar_t>) {

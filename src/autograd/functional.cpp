@@ -201,5 +201,22 @@ VarPtr ln(VarPtr &a) {
   return Variable::fromOp(torch::ln(a->data()), {a}, backward);
 }
 
+VarPtr sqrt(VarPtr &a) {
+  auto sqrt = torch::sqrt(a->data());
+  auto backward = [a, sqrt](const Tensor &g) -> void {
+    a->accumulate_grad(torch::div(g, torch::scale(sqrt, 2)));
+  };
+
+  return Variable::fromOp(sqrt, {a}, backward);
+}
+
+VarPtr scale(VarPtr &a, double s) {
+  auto backward = [a, s](const Tensor &g) -> void {
+    a->accumulate_grad(torch::scale(g, s));
+  };
+
+  return Variable::fromOp(torch::scale(a->data(), s), {a}, backward);
+}
+
 } // namespace autograd
 } // namespace torch
