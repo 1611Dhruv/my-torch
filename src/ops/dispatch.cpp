@@ -116,6 +116,10 @@ Tensor scale(const Tensor &a, double scalar) {
   return elementwise_scalar_dispatch(a, cpu::scale, cuda::scale, scalar);
 }
 
+Tensor shift(const Tensor &a, double scalar) {
+  return elementwise_scalar_dispatch(a, cpu::shift, cuda::shift, scalar);
+}
+
 // The matmul backends can consume a tensor whose last two dims are swapped on
 // an otherwise contiguous buffer (CUDA templates the kernel on it, CPU indexes
 // by stride). Anything else has to be materialized, and that decision belongs
