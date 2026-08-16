@@ -13,6 +13,8 @@
 
 #include "mytorch/autograd.h"
 #include "mytorch/tensor.h"
+#include <algorithm>
+#include <cmath>
 #include <gtest/gtest.h>
 #include <vector>
 
@@ -50,19 +52,173 @@ static void expect_close(std::vector<float> &&t1, std::vector<float> &&t2) {
   }
 }
 
-// --- forward values (runnable now) ------------------------------------------
-constexpr float eps = 1e-9;
+// --- Numerical Analyis ------------------------------------------
+constexpr double eps = 6e-6;
 
-TEST(AutogradDynamic, dynamic_add_cpu) {
-  auto a = leaf_rand({2, 3});
-  auto b = leaf_rand({2, 3});
-  auto E = leaf1d({eps});
-  auto E_TWICE = leaf1d({2 * eps});
+template <typename Op>
+void gradient_check(std::string name, Op fn, std::vector<torch::Tensor> inputs,
+                    double atol = 1e-8, double rtol = 1e-5) {
 
-  auto E_PLUS = torch::add(torch::add(a->data(), b->data()), E->data());
-  auto E_MINUS = torch::sub(torch::add(a->data(), b->data()), E->data());
-  auto DERIVE = torch::div(torch::add(E_PLUS, E_MINUS), E_TWICE->data());
+  // Transform inputs into cool dudes once
+  std::vector<torch::autograd::VarPtr> vars(inputs.size());
+  std::ranges::transform(inputs, vars.begin(), [](auto t) {
+    return torch::autograd::Variable::leaf(t, true);
+  });
+
+  // Perform our autograd to get a partial result
+  auto out = fn(vars);
+  auto R = torch::autograd::Variable::leaf(
+      torch::Tensor::randn_like_hp(out->data()), false);
+
+  // Manually compute this analytical loss
+  auto L = torch::autograd::sum(torch::autograd::mult(out, R), {});
+  // Populate the gradients
+  L->backward();
+
+  // Get the gradient
+  auto eval = [&]() -> double {
+    torch::autograd::VarPtr loss =
+        torch::autograd::sum(torch::autograd::mult(R, fn(vars)), {});
+    return loss->data().data_ptr<double>()[0];
+  };
+
+  int64_t N = inputs.size();
+
+  for (int64_t i = 0; i < N; i++) {
+    // Get a copy of the gradient
+    if (!vars[i]->grad().has_value()) {
+      ADD_FAILURE() << name << ": Expected grad of at input idx[" << i
+                    << "] to have a value\n";
+      continue;
+    }
+    auto grad = *vars[i]->grad();
+    auto &t = inputs[i];
+    auto dptr = t.data_ptr<double>();
+    for (int64_t j = 0; j < t.numel(); j++) {
+      auto old = dptr[j];
+
+      dptr[j] = old + eps;
+      auto f1 = eval();
+
+      dptr[j] = old - eps;
+      auto f2 = eval();
+
+      dptr[j] = old;
+
+      auto g_num = (f1 - f2) / (2 * eps);
+      auto g_anal = grad.data_ptr<double>()[j];
+      // Mixed tolerance
+      if (std::fabs(g_num - g_anal) >
+          atol + rtol * std::max(std::fabs(g_num), std::fabs(g_anal))) {
+        FAIL() << name << ": Grad check for param [" << i << "," << j
+               << "] failed";
+      }
+    }
+  }
 }
+
+TEST(AutogradNumerical, Add) {
+  auto a = torch::Tensor::rand({2, 3, 4}).to(torch::DType::Float64,
+                                             torch::Device::CPU);
+  auto b = torch::Tensor::rand({2, 3, 4}).to(torch::DType::Float64,
+                                             torch::Device::CPU);
+  gradient_check("add",
+                 [&](std::vector<torch::autograd::VarPtr> inps) {
+                   return torch::autograd::add(inps[0], inps[1]);
+                 },
+                 {a, b});
+}
+
+TEST(AutogradNumerical, Sub) {
+  auto a = torch::Tensor::rand({2, 3, 4}).to(torch::DType::Float64,
+                                             torch::Device::CPU);
+  auto b = torch::Tensor::rand({2, 3, 4}).to(torch::DType::Float64,
+                                             torch::Device::CPU);
+  gradient_check("sub",
+                 [&](std::vector<torch::autograd::VarPtr> inps) {
+                   return torch::autograd::sub(inps[0], inps[1]);
+                 },
+                 {a, b});
+}
+
+TEST(AutogradNumerical, Mult) {
+  auto a = torch::Tensor::rand({2, 3, 4}).to(torch::DType::Float64,
+                                             torch::Device::CPU);
+  auto b = torch::Tensor::rand({2, 3, 4}).to(torch::DType::Float64,
+                                             torch::Device::CPU);
+  gradient_check("mult",
+                 [&](std::vector<torch::autograd::VarPtr> inps) {
+                   return torch::autograd::mult(inps[0], inps[1]);
+                 },
+                 {a, b});
+}
+
+TEST(AutogradNumerical, Div) {
+  auto a = torch::Tensor::rand({2, 3, 4}).to(torch::DType::Float64,
+                                             torch::Device::CPU);
+  auto b = torch::Tensor::randn({2, 3, 4}, torch::Device::CPU, 100, 1)
+               .to(torch::DType::Float64, torch::Device::CPU);
+  gradient_check(
+      "div",
+      [&](std::vector<torch::autograd::VarPtr> inps) {
+        return torch::autograd::div(inps[0], inps[1]);
+      },
+      {a, b}, 1e-6, 1e-5);
+}
+
+TEST(AutogradNumerical, Transp) {
+  auto a = torch::Tensor::rand({2, 3, 4}).to(torch::DType::Float64,
+                                             torch::Device::CPU);
+  gradient_check("transp",
+                 [&](std::vector<torch::autograd::VarPtr> inps) {
+                   return torch::autograd::transpose(inps[0], 0, -1);
+                 },
+                 {a});
+}
+
+TEST(AutogradNumerical, Reshape) {
+  auto a = torch::Tensor::rand({2, 3, 4}).to(torch::DType::Float64,
+                                             torch::Device::CPU);
+  gradient_check("reshape",
+                 [&](std::vector<torch::autograd::VarPtr> inps) {
+                   return torch::autograd::reshape(inps[0], {3, 8});
+                 },
+                 {a});
+}
+
+TEST(AutogradNumerical, Sum) {
+  auto a = torch::Tensor::randn({2, 3, 4}).to(torch::DType::Float64,
+                                              torch::Device::CPU);
+  gradient_check("sum",
+                 [&](std::vector<torch::autograd::VarPtr> inps) {
+                   return torch::autograd::sum(inps[0], {0, 2});
+                 },
+                 {a});
+}
+
+TEST(AutogradNumerical, Matmul) {
+  auto a = torch::Tensor::randn({2, 3, 4}).to(torch::DType::Float64,
+                                              torch::Device::CPU);
+  auto b = torch::Tensor::randn({2, 4, 3}).to(torch::DType::Float64,
+                                              torch::Device::CPU);
+  gradient_check("sum",
+                 [&](std::vector<torch::autograd::VarPtr> inps) {
+                   return torch::autograd::matmul(inps[0], inps[1]);
+                 },
+                 {a, b});
+}
+
+TEST(AutogradNumerical, ReLU) {
+  auto a = torch::Tensor::randn({2, 3, 4}).to(torch::DType::Float64,
+                                              torch::Device::CPU);
+  gradient_check("relu",
+                 [&](std::vector<torch::autograd::VarPtr> inps) {
+                   return torch::autograd::relu(inps[0]);
+                 },
+                 {a});
+}
+
+// --- forward values (runnable now) ------------------------------------------
 
 TEST(AutogradForward, Add) {
   auto a = leaf1d({1, 2, 3});

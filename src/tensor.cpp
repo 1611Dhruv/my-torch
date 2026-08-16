@@ -397,6 +397,26 @@ Tensor Tensor::randn(std::vector<int64_t> shape, Device device, double mean,
   return t;
 }
 
+Tensor Tensor::randn_like_hp(const Tensor &other, double mean, double std) {
+  Tensor t(other.shape(), torch::DType::Float64, other.device());
+  int64_t n = t.numel();
+  int64_t nb = t._storage.size();
+  void *host = (other.device() == CPU) ? t._storage.get() : malloc(nb);
+
+  double *p = static_cast<double *>(host);
+  std::normal_distribution<double> dist(mean, std);
+  for (int64_t i = 0; i < n; i++) {
+    p[i] = dist(rand_generator());
+  }
+
+  if (other.device() == CUDA) {
+    CUDA_CHECK(cudaMemcpy(t._storage.get(), host, nb, cudaMemcpyHostToDevice));
+    free(host);
+  }
+
+  return t;
+}
+
 namespace {
 static std::string get_dtype(DType dt) {
   switch (dt) {
@@ -406,6 +426,8 @@ static std::string get_dtype(DType dt) {
     return "float32";
   case DType::UInt8:
     return "uint8";
+  case DType::Float64:
+    return "float64";
   }
   throw std::invalid_argument("How did we get here?");
 }

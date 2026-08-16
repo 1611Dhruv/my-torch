@@ -114,12 +114,15 @@ VarPtr matmul(VarPtr a, VarPtr b) {
                           backward);
 }
 
-VarPtr sum(VarPtr a, std::vector<int64_t> dims = {}) {
-  auto backward = [a](const Tensor &g) -> void {
-    Tensor g1 = g.broadcast_to(a->data().shape());
+VarPtr sum(VarPtr a, std::vector<int64_t> dims) {
+  auto kept_dim = torch::sum(a->data(), dims, true);
+
+  auto backward = [a, kept_dim](const Tensor &g) -> void {
+    Tensor g1 = g.reshape(kept_dim.shape()).broadcast_to(a->data().shape());
     a->accumulate_grad(g1);
   };
-  return Variable::fromOp(torch::sum(a->data(), dims, false), {a}, backward);
+
+  return Variable::fromOp(kept_dim.squeeze({}), {a}, backward);
 }
 
 VarPtr relu(VarPtr a) {
