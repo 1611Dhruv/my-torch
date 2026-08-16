@@ -167,28 +167,28 @@ VarPtr reshape(VarPtr a, std::vector<int64_t> dims) {
   return Variable::fromOp(a->data().reshape(dims), {a}, backward);
 }
 
-VarPtr neg(VarPtr &a) {
+VarPtr neg(VarPtr a) {
   auto backward = [a](const Tensor &g) -> void {
     a->accumulate_grad(torch::neg(g));
   };
   return Variable::fromOp(torch::neg(a->data()), {a}, backward);
 }
 
-VarPtr sin(VarPtr &a) {
+VarPtr sin(VarPtr a) {
   auto backward = [a](const Tensor &g) -> void {
     a->accumulate_grad(torch::mult(g, torch::cos(a->data())));
   };
   return Variable::fromOp(torch::sin(a->data()), {a}, backward);
 }
 
-VarPtr cos(VarPtr &a) {
+VarPtr cos(VarPtr a) {
   auto backward = [a](const Tensor &g) -> void {
     a->accumulate_grad(torch::mult(g, torch::neg(torch::sin(a->data()))));
   };
   return Variable::fromOp(torch::cos(a->data()), {a}, backward);
 }
 
-VarPtr exp(VarPtr &a) {
+VarPtr exp(VarPtr a) {
   auto out = torch::exp(a->data());
   auto backward = [a, out](const Tensor &g) -> void {
     a->accumulate_grad(torch::mult(g, out));
@@ -197,7 +197,7 @@ VarPtr exp(VarPtr &a) {
   return Variable::fromOp(out, {a}, backward);
 }
 
-VarPtr ln(VarPtr &a) {
+VarPtr ln(VarPtr a) {
   auto backward = [a](const Tensor &g) -> void {
     a->accumulate_grad(torch::div(g, a->data()));
   };
@@ -205,7 +205,7 @@ VarPtr ln(VarPtr &a) {
   return Variable::fromOp(torch::ln(a->data()), {a}, backward);
 }
 
-VarPtr sqrt(VarPtr &a) {
+VarPtr sqrt(VarPtr a) {
   auto sqrt = torch::sqrt(a->data());
   auto backward = [a, sqrt](const Tensor &g) -> void {
     a->accumulate_grad(torch::div(g, torch::scale(sqrt, 2)));
@@ -214,7 +214,7 @@ VarPtr sqrt(VarPtr &a) {
   return Variable::fromOp(sqrt, {a}, backward);
 }
 
-VarPtr scale(VarPtr &a, double s) {
+VarPtr scale(VarPtr a, double s) {
   auto backward = [a, s](const Tensor &g) -> void {
     a->accumulate_grad(torch::scale(g, s));
   };

@@ -8,7 +8,7 @@ namespace nn {
 // Module
 void Module::_collect(
     const std::string &prefix,
-    std::vector<std::pair<std::string, autograd::VarPtr>> &out) const {
+    std::vector<std::pair<std::string, ag::VarPtr>> &out) const {
   for (const auto &[param_name, pptr] : _params) {
     out.emplace_back(std::make_pair(prefix + param_name, pptr));
   }
@@ -17,16 +17,15 @@ void Module::_collect(
   }
 }
 
-std::vector<std::pair<std::string, autograd::VarPtr>>
-Module::named_params() const {
-  std::vector<std::pair<std::string, autograd::VarPtr>> out;
+std::vector<std::pair<std::string, ag::VarPtr>> Module::named_params() const {
+  std::vector<std::pair<std::string, ag::VarPtr>> out;
   this->_collect("", out);
   return out;
 }
 
-std::vector<autograd::VarPtr> Module::params() const {
+std::vector<ag::VarPtr> Module::params() const {
   auto npms = named_params();
-  std::vector<autograd::VarPtr> out;
+  std::vector<ag::VarPtr> out;
   out.reserve(npms.size());
   for (auto &[_, v] : npms) {
     out.push_back(v);
@@ -49,8 +48,7 @@ void Module::to(DType dtype, Device dev) {
 void Module::register_module(const std::string &name, Module *module) {
   _modules.emplace_back(std::make_pair(name, module));
 }
-autograd::VarPtr Module::register_param(const std::string &name,
-                                        autograd::VarPtr param) {
+ag::VarPtr Module::register_param(const std::string &name, ag::VarPtr param) {
   _params.emplace_back(std::make_pair(name, param));
   return param;
 }
@@ -60,27 +58,27 @@ Linear::Linear(int64_t in_dim, int64_t out_dim, DType dtype, Device dev) {
   // Construct a _in by _out
   // so that forward is just: x = [Batch, _in] @ weight
   _weight = register_param(
-      "weight", Variable::leaf(Tensor::randn({in_dim, out_dim}, dev, 0,
-                                             std::sqrt(2.0 / in_dim))));
-  _bias = register_param("bias",
-                         Variable::leaf(Tensor::zeros({out_dim}, dtype, dev)));
+      "weight", ag::Variable::leaf(Tensor::randn({in_dim, out_dim}, dev, 0,
+                                                 std::sqrt(2.0 / in_dim))));
+  _bias = register_param(
+      "bias", ag::Variable::leaf(Tensor::zeros({out_dim}, dtype, dev)));
 }
 
-autograd::VarPtr Linear::forward(autograd::VarPtr inp) {
-  return autograd::add(autograd::matmul(inp, _weight), _bias);
+ag::VarPtr Linear::forward(ag::VarPtr inp) {
+  return ag::add(ag::matmul(inp, _weight), _bias);
 }
 
 // Sequential
 Sequential::Sequential(std::initializer_list<std::shared_ptr<Module>> modules)
-    : _modules(modules) {
-  for (int64_t i = 0; i < _modules.size(); i++) {
-    register_module("module_" + std::to_string(i), _modules[i].get());
+    : _layers(modules) {
+  for (int64_t i = 0; i < _layers.size(); i++) {
+    register_module("module_" + std::to_string(i), _layers[i].get());
   }
 }
 
-autograd::VarPtr Sequential::forward(autograd::VarPtr inp) {
+ag::VarPtr Sequential::forward(ag::VarPtr inp) {
   auto out = inp;
-  for (auto &m : _modules) {
+  for (auto &m : _layers) {
     out = m->forward(out);
   }
   return out;

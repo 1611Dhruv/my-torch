@@ -13,10 +13,7 @@ MSE::MSE(autograd::VarPtr pred, autograd::VarPtr act) {
   }
   VarPtr total = sum(sq, reduce_along);
   float ndim = act->data().numel();
-  VarPtr norm =
-      Variable::leaf(Tensor({1}, reinterpret_cast<std::byte *>(&ndim)), false);
-
-  _loss = div(total, norm);
+  _loss = scale(total, 1 / ndim);
 }
 
 void MSE::backward() {

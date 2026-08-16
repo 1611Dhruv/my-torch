@@ -64,13 +64,13 @@ VarPtr mult(VarPtr a, VarPtr b);
 VarPtr matmul(VarPtr a, VarPtr b);
 
 // unary ops
-VarPtr neg(VarPtr &a);
-VarPtr sin(VarPtr &a);
-VarPtr cos(VarPtr &a);
-VarPtr exp(VarPtr &a);
-VarPtr ln(VarPtr &a);
-VarPtr sqrt(VarPtr &a);
-VarPtr scale(VarPtr &a, double s);
+VarPtr neg(VarPtr a);
+VarPtr sin(VarPtr a);
+VarPtr cos(VarPtr a);
+VarPtr exp(VarPtr a);
+VarPtr ln(VarPtr a);
+VarPtr sqrt(VarPtr a);
+VarPtr scale(VarPtr a, double s);
 
 VarPtr sum(VarPtr a, std::vector<int64_t> dims = {}, bool keep_dim = false);
 VarPtr max(VarPtr a, std::vector<int64_t> dims = {}, bool keep_dim = false);

@@ -35,3 +35,7 @@ gtest_discover_tests(matmul_test)
 add_executable(reduction_test reduction_test.cpp)
 target_link_libraries(reduction_test PRIVATE mytorch GTest::gtest_main)
 gtest_discover_tests(reduction_test)
+
+add_executable(training_test training_test.cpp)
+target_link_libraries(training_test PRIVATE mytorch GTest::gtest_main)
+gtest_discover_tests(training_test)
