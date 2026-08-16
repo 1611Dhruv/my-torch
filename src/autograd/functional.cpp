@@ -125,6 +125,23 @@ VarPtr sum(VarPtr a, std::vector<int64_t> dims) {
   return Variable::fromOp(kept_dim.squeeze({}), {a}, backward);
 }
 
+VarPtr max(VarPtr a, std::vector<int64_t> dims) {
+  auto kept_dim = torch::max(a->data(), dims, true);
+
+  auto backward = [a, kept_dim](const Tensor &g) -> void {
+    // max should pass grad only to values which are the maximum
+    // relu_back: g * (x > 0) <--
+    // g * [1 - 1 * (max > x)] <-- this could work?
+    auto one = torch::Tensor::ones({1}, kept_dim.dtype(), kept_dim.device());
+    auto lt_max =
+        torch::sub(one, torch::relu_back(torch::sub(kept_dim, a->data()), one));
+    auto g1 = torch::mult(g.reshape(kept_dim.shape()), lt_max);
+    a->accumulate_grad(g1);
+  };
+
+  return Variable::fromOp(kept_dim.squeeze({}), {a}, backward);
+}
+
 VarPtr relu(VarPtr a) {
   auto backward = [a](const Tensor &g) -> void {
     a->accumulate_grad(torch::relu_back(a->data(), g));
@@ -144,6 +161,44 @@ VarPtr reshape(VarPtr a, std::vector<int64_t> dims) {
     a->accumulate_grad(g.reshape(a->data().shape()));
   };
   return Variable::fromOp(a->data().reshape(dims), {a}, backward);
+}
+
+VarPtr neg(VarPtr &a) {
+  auto backward = [a](const Tensor &g) -> void {
+    a->accumulate_grad(torch::neg(g));
+  };
+  return Variable::fromOp(torch::neg(a->data()), {a}, backward);
+}
+
+VarPtr sin(VarPtr &a) {
+  auto backward = [a](const Tensor &g) -> void {
+    a->accumulate_grad(torch::mult(g, torch::cos(a->data())));
+  };
+  return Variable::fromOp(torch::sin(a->data()), {a}, backward);
+}
+
+VarPtr cos(VarPtr &a) {
+  auto backward = [a](const Tensor &g) -> void {
+    a->accumulate_grad(torch::mult(g, torch::neg(torch::sin(a->data()))));
+  };
+  return Variable::fromOp(torch::cos(a->data()), {a}, backward);
+}
+
+VarPtr exp(VarPtr &a) {
+  auto out = torch::exp(a->data());
+  auto backward = [a, out](const Tensor &g) -> void {
+    a->accumulate_grad(torch::mult(g, out));
+  };
+
+  return Variable::fromOp(out, {a}, backward);
+}
+
+VarPtr ln(VarPtr &a) {
+  auto backward = [a](const Tensor &g) -> void {
+    a->accumulate_grad(torch::div(g, a->data()));
+  };
+
+  return Variable::fromOp(torch::ln(a->data()), {a}, backward);
 }
 
 } // namespace autograd

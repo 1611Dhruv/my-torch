@@ -208,6 +208,10 @@ Tensor exp(const Tensor &a, Tensor &out) {
                                    [] __device__(auto x) { return expf(x); });
 }
 
+Tensor ln(const Tensor &a, Tensor &out) {
+  return elementwise_unary_wrapper(
+      a, out, [] __device__(auto x) { return log(static_cast<double>(x)); });
+}
 Tensor contiguous(const Tensor &a, Tensor &out) {
   return elementwise_unary_wrapper(a, out, [] __device__(auto x) { return x; });
 }

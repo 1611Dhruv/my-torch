@@ -63,7 +63,16 @@ VarPtr sub(VarPtr a, VarPtr b);
 VarPtr mult(VarPtr a, VarPtr b);
 VarPtr matmul(VarPtr a, VarPtr b);
 
+// unary ops
+VarPtr neg(VarPtr &a);
+VarPtr sin(VarPtr &a);
+VarPtr cos(VarPtr &a);
+VarPtr exp(VarPtr &a);
+VarPtr ln(VarPtr &a);
+
 VarPtr sum(VarPtr a, std::vector<int64_t> dims = {});
+VarPtr max(VarPtr a, std::vector<int64_t> dims = {});
+
 VarPtr transpose(VarPtr a, int64_t dim1, int64_t dim2);
 VarPtr reshape(VarPtr a, std::vector<int64_t> dims);
 

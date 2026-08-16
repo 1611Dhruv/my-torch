@@ -218,6 +218,66 @@ TEST(AutogradNumerical, ReLU) {
                  {a});
 }
 
+TEST(AutogradNumerical, Neg) {
+  auto a = torch::Tensor::randn({2, 3, 4}).to(torch::DType::Float64,
+                                              torch::Device::CPU);
+  gradient_check("neg",
+                 [&](std::vector<torch::autograd::VarPtr> inps) {
+                   return torch::autograd::neg(inps[0]);
+                 },
+                 {a});
+}
+
+TEST(AutogradNumerical, Sin) {
+  auto a = torch::Tensor::randn({2, 3, 4}).to(torch::DType::Float64,
+                                              torch::Device::CPU);
+  gradient_check("sin",
+                 [&](std::vector<torch::autograd::VarPtr> inps) {
+                   return torch::autograd::sin(inps[0]);
+                 },
+                 {a});
+}
+
+TEST(AutogradNumerical, Cos) {
+  auto a = torch::Tensor::randn({2, 3, 4}).to(torch::DType::Float64,
+                                              torch::Device::CPU);
+  gradient_check("cos",
+                 [&](std::vector<torch::autograd::VarPtr> inps) {
+                   return torch::autograd::cos(inps[0]);
+                 },
+                 {a});
+}
+
+TEST(AutogradNumerical, Exp) {
+  auto a = torch::Tensor::randn({2, 3, 4}).to(torch::DType::Float64,
+                                              torch::Device::CPU);
+  gradient_check("cos",
+                 [&](std::vector<torch::autograd::VarPtr> inps) {
+                   return torch::autograd::exp(inps[0]);
+                 },
+                 {a});
+}
+
+TEST(AutogradNumerical, Ln) {
+  auto a = torch::Tensor::randn({2, 3, 4}).to(torch::DType::Float64,
+                                              torch::Device::CPU);
+  gradient_check("ln",
+                 [&](std::vector<torch::autograd::VarPtr> inps) {
+                   return torch::autograd::ln(inps[0]);
+                 },
+                 {a});
+}
+
+TEST(AutogradNumerical, Max) {
+  auto a = torch::Tensor::randn({2, 3, 4}).to(torch::DType::Float64,
+                                              torch::Device::CPU);
+  gradient_check("max",
+                 [&](std::vector<torch::autograd::VarPtr> inps) {
+                   return torch::autograd::max(inps[0], {0, 2});
+                 },
+                 {a});
+}
+
 // --- forward values (runnable now) ------------------------------------------
 
 TEST(AutogradForward, Add) {

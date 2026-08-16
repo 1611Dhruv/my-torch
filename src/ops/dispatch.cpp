@@ -93,6 +93,10 @@ Tensor exp(const Tensor &a) {
   return elementwise_unary_dispatch(a, cpu::exp, cuda::exp);
 }
 
+Tensor ln(const Tensor &a) {
+  return elementwise_unary_dispatch(a, cpu::ln, cuda::ln);
+}
+
 // The matmul backends can consume a tensor whose last two dims are swapped on
 // an otherwise contiguous buffer (CUDA templates the kernel on it, CPU indexes
 // by stride). Anything else has to be materialized, and that decision belongs
@@ -241,6 +245,10 @@ Tensor reduce(const Tensor &a, std::vector<int64_t> &dims, bool keep_dim,
 
 Tensor sum(const Tensor &a, std::vector<int64_t> dims, bool keep_dim) {
   return reduce(a, dims, keep_dim, cpu::sum, cuda::sum);
+}
+
+Tensor max(const Tensor &a, std::vector<int64_t> dims, bool keep_dim) {
+  return reduce(a, dims, keep_dim, cpu::max, cuda::max);
 }
 
 // Special kernels

@@ -1,5 +1,6 @@
 #include "mytorch/cuda_utils.h"
 #include "mytorch/tensor.h"
+#include <limits>
 #include <vector>
 
 namespace torch {
@@ -94,6 +95,16 @@ Tensor sum(const Tensor &a, Tensor &out, const std::vector<int64_t> &dims) {
   DISPATCH_OP(a.dtype(), [&]() {
     reduce_helper(a, out, dims, static_cast<scalar_t>(0),
                   [] __device__(scalar_t x, scalar_t y) { return x + y; });
+  });
+  return out;
+}
+
+Tensor max(const Tensor &a, Tensor &out, const std::vector<int64_t> &dims) {
+  constexpr double mINF = std::numeric_limits<double>::lowest();
+  DISPATCH_OP(a.dtype(), [&]() {
+    reduce_helper(
+        a, out, dims, static_cast<scalar_t>(mINF),
+        [] __device__(scalar_t x, scalar_t y) { return x > y ? x : y; });
   });
   return out;
 }

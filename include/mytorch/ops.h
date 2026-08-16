@@ -16,6 +16,7 @@ Tensor neg(const Tensor &a);
 Tensor sin(const Tensor &a);
 Tensor cos(const Tensor &a);
 Tensor exp(const Tensor &a);
+Tensor ln(const Tensor &a);
 
 // Special Fused kernels
 Tensor relu(const Tensor &a);
@@ -23,15 +24,13 @@ Tensor relu_back(const Tensor &a, const Tensor &g);
 
 // Reductions
 Tensor sum(const Tensor &a, std::vector<int64_t> dims, bool keep_dim = true);
+Tensor max(const Tensor &a, std::vector<int64_t> dims, bool keep_dim = true);
 
 Tensor cast(const Tensor &a, DType dtype);
 /*
  NOTE: Future
-Tensor ln(Tensor &a);
 
-Tensor max(const Tensor &a, const std::vector<int64_t> dims, bool keep_dim =
-true); Tensor mean(const Tensor &a, const std::vector<int64_t> dims, bool
-keep_dim = true);
+Tensor mean(const Tensor &a, std::vector<int64_t> dims, bool keep_dim = true);
 */
 
 namespace cpu {
@@ -50,10 +49,12 @@ Tensor neg(const Tensor &a, Tensor &out);
 Tensor sin(const Tensor &a, Tensor &out);
 Tensor cos(const Tensor &a, Tensor &out);
 Tensor exp(const Tensor &a, Tensor &out);
+Tensor ln(const Tensor &a, Tensor &out);
 
 // Reductions
 // NOTE: Always keeps dim = true
 Tensor sum(const Tensor &a, Tensor &out, const std::vector<int64_t> &dims);
+Tensor max(const Tensor &a, Tensor &out, const std::vector<int64_t> &dims);
 
 // Special fused kernels
 Tensor relu(const Tensor &a, Tensor &out);
@@ -62,9 +63,7 @@ Tensor relu_back(const Tensor &a, const Tensor &g, Tensor &out);
 Tensor cast(const Tensor &a, Tensor &out);
 /*
  NOTE: Future
-Tensor ln(Tensor &a);
 
-Tensor max(const Tensor &a, Tensor &out, std::vector<int64_t> dims);
 Tensor mean(const Tensor &a, Tensor &out, std::vector<int64_t> dims);
 */
 
@@ -86,6 +85,8 @@ Tensor neg(const Tensor &a, Tensor &out);
 Tensor sin(const Tensor &a, Tensor &out);
 Tensor cos(const Tensor &a, Tensor &out);
 Tensor exp(const Tensor &a, Tensor &out);
+Tensor ln(const Tensor &a, Tensor &out);
+
 Tensor contiguous(const Tensor &a, Tensor &out);
 template <typename scalar_t>
 Tensor fill(const Tensor &a, Tensor &out, scalar_t t);
@@ -93,6 +94,7 @@ Tensor fill(const Tensor &a, Tensor &out, scalar_t t);
 // Reductions
 // NOTE: Always keeps dim = true
 Tensor sum(const Tensor &a, Tensor &out, const std::vector<int64_t> &dims);
+Tensor max(const Tensor &a, Tensor &out, const std::vector<int64_t> &dims);
 
 // Special fused kernels
 Tensor relu(const Tensor &a, Tensor &out);
@@ -102,9 +104,7 @@ Tensor cast(const Tensor &a, Tensor &out);
 
 /*
  NOTE: Future
-Tensor ln(Tensor &a);
 
-Tensor max(const Tensor &a, Tensor &out, std::vector<int64_t> dims);
 Tensor mean(const Tensor &a, Tensor &out, std::vector<int64_t> dims);
 */
 

@@ -162,6 +162,12 @@ Tensor exp(const Tensor &a, Tensor &out) {
   return out;
 }
 
+Tensor ln(const Tensor &a, Tensor &out) {
+  DISPATCH_OP(a.dtype(), [&] {
+    unary_elementwise<scalar_t>(a, out, [](scalar_t x) { return std::log(x); });
+  });
+  return out;
+}
 Tensor sin(const Tensor &a, Tensor &out) {
   DISPATCH_OP(a.dtype(), [&] {
     unary_elementwise<scalar_t>(a, out, [](scalar_t x) { return std::sin(x); });
