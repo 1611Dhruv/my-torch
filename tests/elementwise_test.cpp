@@ -402,3 +402,46 @@ TEST_F(ElementwiseCudaStrided, AddTransposedHighRankMatchesCpu) {
   }
   expect_cuda_matches_cpu_transposed(torch::add, {3, 5, 7, 9}, va, vb);
 }
+
+// ===========================================================================
+// Transcendental ops reject integer dtypes
+//
+// sin/cos/exp/ln compute in floating point. Rather than promote an integer
+// input the way PyTorch does, these throw -- computing in float and truncating
+// back to an integer would be silently wrong, and nothing in this framework
+// needs sin/exp on token IDs.
+//
+// This is the documented behavior of the FLOAT-only dispatch guard, so it gets
+// a test: without one, a future change to the guard could silently start
+// truncating again with nothing to catch it.
+// ===========================================================================
+
+TEST(ElementwiseDtypeTest, TranscendentalsRejectIntegerDtypesOnCpu) {
+  torch::Tensor i32({2, 3}, torch::DType::Int32, CPU);
+  torch::Tensor u8({2, 3}, torch::DType::UInt8, CPU);
+
+  EXPECT_THROW(torch::sin(i32), std::invalid_argument);
+  EXPECT_THROW(torch::cos(i32), std::invalid_argument);
+  EXPECT_THROW(torch::exp(i32), std::invalid_argument);
+  EXPECT_THROW(torch::ln(i32), std::invalid_argument);
+  EXPECT_THROW(torch::exp(u8), std::invalid_argument);
+}
+
+TEST(ElementwiseDtypeTest, TranscendentalsRejectIntegerDtypesOnCuda) {
+  torch::Tensor i32({2, 3}, torch::DType::Int32, CUDA);
+  EXPECT_THROW(torch::sin(i32), std::invalid_argument);
+  EXPECT_THROW(torch::cos(i32), std::invalid_argument);
+  EXPECT_THROW(torch::exp(i32), std::invalid_argument);
+  EXPECT_THROW(torch::ln(i32), std::invalid_argument);
+}
+
+TEST(ElementwiseDtypeTest, IntegerDtypesStillWorkForNonTranscendentals) {
+  // The guard must be scoped to the float-only ops -- neg/add/mult on ints
+  // are perfectly meaningful and must keep working.
+  torch::Tensor a({2, 3}, torch::DType::Int32, CPU);
+  torch::Tensor b({2, 3}, torch::DType::Int32, CPU);
+  EXPECT_NO_THROW(torch::neg(a));
+  EXPECT_NO_THROW(torch::add(a, b));
+  EXPECT_NO_THROW(torch::mult(a, b));
+  EXPECT_NO_THROW(torch::sum(a, {0}, true));
+}

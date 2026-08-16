@@ -29,6 +29,7 @@ public:
   named_params() const;
   std::vector<std::shared_ptr<Variable>> params() const;
   void zero_grad();
+  void to(DType dtype, Device dev);
 
 protected:
   // Each nn module should be able to either register a param or a module

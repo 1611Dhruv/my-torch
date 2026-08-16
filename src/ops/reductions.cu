@@ -30,7 +30,10 @@ __global__ void reduce(const scalar_t *inp, scalar_t *out, ReduceDims dim,
     scalar_t elm = inp[koff + roff];
     acc = op(acc, elm);
     int d = dim.nreduce - 1;
-
+    if (d < 0) {
+      done = true;
+      break;
+    }
     idx[d]++;
     roff += dim.reduce_stride[d];
 

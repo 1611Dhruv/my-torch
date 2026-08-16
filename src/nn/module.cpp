@@ -40,6 +40,12 @@ void Module::zero_grad() {
   }
 }
 
+void Module::to(DType dtype, Device dev) {
+  for (auto &p : params()) {
+    p->data() = p->data().to(dtype, dev);
+  }
+}
+
 void Module::register_module(const std::string &name, Module *module) {
   _modules.emplace_back(std::make_pair(name, module));
 }

@@ -12,7 +12,9 @@
 // Run:  ctest --test-dir build -R Autograd
 
 #include "mytorch/autograd.h"
+#include "mytorch/cuda_utils.h"
 #include "mytorch/tensor.h"
+#include <cuda_runtime_api.h>
 #include <algorithm>
 #include <cmath>
 #include <gtest/gtest.h>
@@ -55,6 +57,35 @@ static void expect_close(std::vector<float> &&t1, std::vector<float> &&t2) {
 // --- Numerical Analyis ------------------------------------------
 constexpr double eps = 6e-6;
 
+// Read/write one element by flat index, on either device.
+//
+// gradcheck pokes a single element at a time on tensors of a few dozen
+// elements, so a per-element cudaMemcpy is the right trade: it keeps one code
+// path for both backends, and this is a correctness tool, not a hot loop.
+static double elem_get(const torch::Tensor &t, int64_t j) {
+  const double *p = t.data_ptr<double>();
+  if (t.device() == torch::Device::CPU)
+    return p[j];
+  double v = 0.0;
+  CUDA_CHECK(cudaMemcpy(&v, p + j, sizeof(double), cudaMemcpyDeviceToHost));
+  return v;
+}
+
+static void elem_set(torch::Tensor &t, int64_t j, double v) {
+  double *p = t.data_ptr<double>();
+  if (t.device() == torch::Device::CPU) {
+    p[j] = v;
+    return;
+  }
+  CUDA_CHECK(cudaMemcpy(p + j, &v, sizeof(double), cudaMemcpyHostToDevice));
+}
+
+// A float64 input tensor on `dev`, which is what gradcheck needs: the step
+// eps=6e-6 is cbrt(DBL_EPSILON), meaningless in float32.
+static torch::Tensor hp(std::vector<int64_t> shape, torch::Device dev) {
+  return torch::Tensor::randn(shape).to(torch::DType::Float64, dev);
+}
+
 template <typename Op>
 void gradient_check(std::string name, Op fn, std::vector<torch::Tensor> inputs,
                     double atol = 1e-8, double rtol = 1e-5) {
@@ -79,7 +110,7 @@ void gradient_check(std::string name, Op fn, std::vector<torch::Tensor> inputs,
   auto eval = [&]() -> double {
     torch::autograd::VarPtr loss =
         torch::autograd::sum(torch::autograd::mult(R, fn(vars)), {});
-    return loss->data().data_ptr<double>()[0];
+    return elem_get(loss->data(), 0);
   };
 
   int64_t N = inputs.size();
@@ -93,20 +124,19 @@ void gradient_check(std::string name, Op fn, std::vector<torch::Tensor> inputs,
     }
     auto grad = *vars[i]->grad();
     auto &t = inputs[i];
-    auto dptr = t.data_ptr<double>();
     for (int64_t j = 0; j < t.numel(); j++) {
-      auto old = dptr[j];
+      auto old = elem_get(t, j);
 
-      dptr[j] = old + eps;
+      elem_set(t, j, old + eps);
       auto f1 = eval();
 
-      dptr[j] = old - eps;
+      elem_set(t, j, old - eps);
       auto f2 = eval();
 
-      dptr[j] = old;
+      elem_set(t, j, old);
 
       auto g_num = (f1 - f2) / (2 * eps);
-      auto g_anal = grad.data_ptr<double>()[j];
+      auto g_anal = elem_get(grad, j);
       // Mixed tolerance
       if (std::fabs(g_num - g_anal) >
           atol + rtol * std::max(std::fabs(g_num), std::fabs(g_anal))) {
@@ -492,4 +522,148 @@ TEST(AutogradBroadcast, BroadcastGradFlowsThroughMult) {
   // dL/dx[i][j] = v[j], broadcast back out
   expect_close(to_vec(x->grad().value()),
                (std::vector<float>{10, 20, 30, 10, 20, 30}));
+}
+
+// ===========================================================================
+// Numerical gradient checks on CUDA
+//
+// Same harness, same tolerances -- the only difference is where the tensors
+// live. gradient_check reads and perturbs elements through elem_get/elem_set,
+// which cudaMemcpy one value at a time, so nothing here needs a host copy of
+// the whole tensor.
+//
+// What these catch that the CPU suite can't: a backward that composes ops
+// which only have a CPU kernel, a device dispatch that silently routes to the
+// wrong backend, a CUDA kernel whose Float64 path was never exercised (several
+// use float-only intrinsics like sinf/expf), and non-contiguous device inputs
+// reaching a kernel that assumes contiguity.
+//
+// Run:  ctest --test-dir build -R AutogradNumericalCuda
+// ===========================================================================
+
+using torch::Device;
+
+TEST(AutogradNumericalCuda, Add) {
+  gradient_check("cuda add",
+                 [](std::vector<ag::VarPtr> in) { return ag::add(in[0], in[1]); },
+                 {hp({2, 3, 4}, Device::CUDA), hp({2, 3, 4}, Device::CUDA)});
+}
+
+TEST(AutogradNumericalCuda, Sub) {
+  gradient_check("cuda sub",
+                 [](std::vector<ag::VarPtr> in) { return ag::sub(in[0], in[1]); },
+                 {hp({2, 3, 4}, Device::CUDA), hp({2, 3, 4}, Device::CUDA)});
+}
+
+TEST(AutogradNumericalCuda, Mult) {
+  gradient_check("cuda mult",
+                 [](std::vector<ag::VarPtr> in) { return ag::mult(in[0], in[1]); },
+                 {hp({2, 3, 4}, Device::CUDA), hp({2, 3, 4}, Device::CUDA)});
+}
+
+TEST(AutogradNumericalCuda, Div) {
+  // Divisor held away from zero: near 0 the derivative is enormous and the
+  // finite-difference step stops being a good local approximation.
+  auto b = torch::Tensor::randn({2, 3, 4}, Device::CPU, 100, 1)
+               .to(torch::DType::Float64, Device::CUDA);
+  gradient_check("cuda div",
+                 [](std::vector<ag::VarPtr> in) { return ag::div(in[0], in[1]); },
+                 {hp({2, 3, 4}, Device::CUDA), b}, 1e-6, 1e-5);
+}
+
+TEST(AutogradNumericalCuda, Neg) {
+  gradient_check("cuda neg", [](std::vector<ag::VarPtr> in) { return ag::neg(in[0]); },
+                 {hp({2, 3, 4}, Device::CUDA)});
+}
+
+TEST(AutogradNumericalCuda, Sin) {
+  // Also a Float64 canary: cuda::sin uses sinf(), which narrows a double to
+  // float and computes in single precision. If that's still the case, the
+  // numerical and analytic gradients disagree well outside 1e-5.
+  gradient_check("cuda sin", [](std::vector<ag::VarPtr> in) { return ag::sin(in[0]); },
+                 {hp({2, 3, 4}, Device::CUDA)});
+}
+
+TEST(AutogradNumericalCuda, Cos) {
+  gradient_check("cuda cos", [](std::vector<ag::VarPtr> in) { return ag::cos(in[0]); },
+                 {hp({2, 3, 4}, Device::CUDA)});
+}
+
+TEST(AutogradNumericalCuda, Exp) {
+  gradient_check("cuda exp", [](std::vector<ag::VarPtr> in) { return ag::exp(in[0]); },
+                 {hp({2, 3, 4}, Device::CUDA)});
+}
+
+TEST(AutogradNumericalCuda, Ln) {
+  // ln needs a positive domain; randn straddles zero.
+  auto a = torch::Tensor::randn({2, 3, 4}, Device::CPU, 100, 1)
+               .to(torch::DType::Float64, Device::CUDA);
+  gradient_check("cuda ln", [](std::vector<ag::VarPtr> in) { return ag::ln(in[0]); },
+                 {a});
+}
+
+TEST(AutogradNumericalCuda, ReLU) {
+  gradient_check("cuda relu", [](std::vector<ag::VarPtr> in) { return ag::relu(in[0]); },
+                 {hp({2, 3, 4}, Device::CUDA)});
+}
+
+TEST(AutogradNumericalCuda, Transpose) {
+  // The backward transposes the gradient, so a non-contiguous tensor reaches
+  // the device kernels -- the CPU suite can't tell you whether that path works.
+  gradient_check("cuda transpose",
+                 [](std::vector<ag::VarPtr> in) { return ag::transpose(in[0], 0, -1); },
+                 {hp({2, 3, 4}, Device::CUDA)});
+}
+
+TEST(AutogradNumericalCuda, Reshape) {
+  gradient_check("cuda reshape",
+                 [](std::vector<ag::VarPtr> in) { return ag::reshape(in[0], {4, 6}); },
+                 {hp({2, 3, 4}, Device::CUDA)});
+}
+
+TEST(AutogradNumericalCuda, Sum) {
+  // Non-adjacent reduced axes: the case that exposed the keepdim bug on CPU.
+  gradient_check("cuda sum",
+                 [](std::vector<ag::VarPtr> in) { return ag::sum(in[0], {0, 2}); },
+                 {hp({2, 3, 4}, Device::CUDA)});
+}
+
+TEST(AutogradNumericalCuda, SumAllAxes) {
+  gradient_check("cuda sum all",
+                 [](std::vector<ag::VarPtr> in) { return ag::sum(in[0], {0, 1, 2}); },
+                 {hp({2, 3, 4}, Device::CUDA)});
+}
+
+TEST(AutogradNumericalCuda, Max) {
+  gradient_check("cuda max",
+                 [](std::vector<ag::VarPtr> in) { return ag::max(in[0], {0, 2}); },
+                 {hp({2, 3, 4}, Device::CUDA)});
+}
+
+TEST(AutogradNumericalCuda, Matmul) {
+  // Distinct M, K, N so a swapped transpose in the backward can't cancel out,
+  // and batched so the {B,M,K} path is what gets exercised.
+  gradient_check("cuda matmul",
+                 [](std::vector<ag::VarPtr> in) { return ag::matmul(in[0], in[1]); },
+                 {hp({2, 3, 4}, Device::CUDA), hp({2, 4, 5}, Device::CUDA)});
+}
+
+TEST(AutogradNumericalCuda, MatmulChainedWithTranspose) {
+  // a @ a^T -- the shape the attention scores take, and the one where a wrong
+  // transpose in matmul's backward shows up as an asymmetric gradient.
+  gradient_check("cuda matmul a@aT",
+                 [](std::vector<ag::VarPtr> in) {
+                   return ag::matmul(in[0], ag::transpose(in[0], -1, -2));
+                 },
+                 {hp({2, 3, 4}, Device::CUDA)});
+}
+
+// The CPU mirror of AutogradNumericalCuda.SumAllAxes. The CPU `incr` helper
+// already guards `dim.size() == 0` (which the CUDA kernel did not), so this
+// passed all along -- but it was untested, which is why the bug only surfaced
+// on the device side. Reducing to a scalar is what every loss does.
+TEST(AutogradNumerical, SumAllAxes) {
+  gradient_check("sum all",
+                 [](std::vector<ag::VarPtr> in) { return ag::sum(in[0], {0, 1, 2}); },
+                 {hp({2, 3, 4}, Device::CPU)});
 }

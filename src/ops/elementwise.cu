@@ -151,7 +151,7 @@ Tensor div(const Tensor &a, const Tensor &b, Tensor &out) {
       a, b, out, [] __device__(auto x, auto y) { return x / y; });
 }
 
-template <typename Op>
+template <const bool float_only = false, typename Op>
 Tensor elementwise_unary_wrapper(const Tensor &a, Tensor &out, Op op) {
   int64_t n = a.numel();
   int threads = 256;
@@ -173,13 +173,23 @@ Tensor elementwise_unary_wrapper(const Tensor &a, Tensor &out, Op op) {
     }
 
     DISPATCH_OP(a.dtype(), [&] {
-      unary_kernel_strided<scalar_t><<<blocks, threads>>>(
-          a.data_ptr<scalar_t>(), out.data_ptr<scalar_t>(), n, op, stride);
+      if constexpr (float_only && !std::is_floating_point_v<scalar_t>) {
+        throw std::invalid_argument("Called elementwise_unary_wrapper which is "
+                                    "float only on a non float type");
+      } else {
+        unary_kernel_strided<scalar_t><<<blocks, threads>>>(
+            a.data_ptr<scalar_t>(), out.data_ptr<scalar_t>(), n, op, stride);
+      }
     });
   } else {
     DISPATCH_OP(a.dtype(), [&] {
-      unary_kernel<scalar_t><<<blocks, threads>>>(
-          a.data_ptr<scalar_t>(), out.data_ptr<scalar_t>(), n, op);
+      if constexpr (float_only && !std::is_floating_point_v<scalar_t>) {
+        throw std::invalid_argument("Called elementwise_unary_wrapper which is "
+                                    "float only on a non float type");
+      } else {
+        unary_kernel<scalar_t><<<blocks, threads>>>(
+            a.data_ptr<scalar_t>(), out.data_ptr<scalar_t>(), n, op);
+      }
     });
   }
 
@@ -194,23 +204,23 @@ Tensor neg(const Tensor &a, Tensor &out) {
 }
 
 Tensor sin(const Tensor &a, Tensor &out) {
-  return elementwise_unary_wrapper(a, out,
-                                   [] __device__(auto x) { return sinf(x); });
+  return elementwise_unary_wrapper<true>(
+      a, out, [] __device__(auto x) { return std::sin(x); });
 }
 
 Tensor cos(const Tensor &a, Tensor &out) {
-  return elementwise_unary_wrapper(a, out,
-                                   [] __device__(auto x) { return cosf(x); });
+  return elementwise_unary_wrapper<true>(
+      a, out, [] __device__(auto x) { return std::cos(x); });
 }
 
 Tensor exp(const Tensor &a, Tensor &out) {
-  return elementwise_unary_wrapper(a, out,
-                                   [] __device__(auto x) { return expf(x); });
+  return elementwise_unary_wrapper<true>(
+      a, out, [] __device__(auto x) { return std::exp(x); });
 }
 
 Tensor ln(const Tensor &a, Tensor &out) {
-  return elementwise_unary_wrapper(
-      a, out, [] __device__(auto x) { return log(static_cast<double>(x)); });
+  return elementwise_unary_wrapper<true>(
+      a, out, [] __device__(auto x) { return std::log(x); });
 }
 Tensor contiguous(const Tensor &a, Tensor &out) {
   return elementwise_unary_wrapper(a, out, [] __device__(auto x) { return x; });

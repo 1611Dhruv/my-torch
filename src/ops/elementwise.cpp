@@ -157,27 +157,48 @@ Tensor div(const Tensor &a, const Tensor &b, Tensor &out) {
 
 Tensor exp(const Tensor &a, Tensor &out) {
   DISPATCH_OP(a.dtype(), [&] {
-    unary_elementwise<scalar_t>(a, out, [](scalar_t x) { return std::exp(x); });
+    if constexpr (!std::is_floating_point_v<scalar_t>) {
+      throw std::invalid_argument("Called elementwise_unary_wrapper which is "
+                                  "float only on a non float type");
+    } else
+      unary_elementwise<scalar_t>(a, out,
+                                  [](scalar_t x) { return std::exp(x); });
   });
   return out;
 }
 
 Tensor ln(const Tensor &a, Tensor &out) {
   DISPATCH_OP(a.dtype(), [&] {
-    unary_elementwise<scalar_t>(a, out, [](scalar_t x) { return std::log(x); });
+    if constexpr (!std::is_floating_point_v<scalar_t>) {
+      throw std::invalid_argument("Called elementwise_unary_wrapper which is "
+                                  "float only on a non float type");
+    } else {
+      unary_elementwise<scalar_t>(a, out,
+                                  [](scalar_t x) { return std::log(x); });
+    }
   });
   return out;
 }
 Tensor sin(const Tensor &a, Tensor &out) {
   DISPATCH_OP(a.dtype(), [&] {
-    unary_elementwise<scalar_t>(a, out, [](scalar_t x) { return std::sin(x); });
+    if constexpr (!std::is_floating_point_v<scalar_t>) {
+      throw std::invalid_argument("Called elementwise_unary_wrapper which is "
+                                  "float only on a non float type");
+    } else
+      unary_elementwise<scalar_t>(a, out,
+                                  [](scalar_t x) { return std::sin(x); });
   });
   return out;
 }
 
 Tensor cos(const Tensor &a, Tensor &out) {
   DISPATCH_OP(a.dtype(), [&] {
-    unary_elementwise<scalar_t>(a, out, [](scalar_t x) { return std::cos(x); });
+    if constexpr (!std::is_floating_point_v<scalar_t>) {
+      throw std::invalid_argument("Called elementwise_unary_wrapper which is "
+                                  "float only on a non float type");
+    } else
+      unary_elementwise<scalar_t>(a, out,
+                                  [](scalar_t x) { return std::cos(x); });
   });
   return out;
 }
