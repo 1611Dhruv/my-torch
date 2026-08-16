@@ -173,8 +173,7 @@ matmul_kernel(const scalar_t *__restrict__ A, const scalar_t *__restrict__ B,
   }
 }
 
-static std::pair<bool, bool> verify_contiguity(const Tensor &a,
-                                               const Tensor &b) {
+static std::pair<bool, bool> verify_contiguity(Tensor &a, Tensor &b) {
   int AS = a.shape().size();
   int BS = b.shape().size();
 
@@ -189,8 +188,8 @@ static std::pair<bool, bool> verify_contiguity(const Tensor &a,
   bool b_transp =
       (b.strides()[BS - 2] == 1 && b.strides()[BS - 1] == b.shape()[BS - 2]);
   if ((!a_contig && !a_transp) || (!b_contig && !b_transp)) {
-    throw std::invalid_argument("matmul cuda: Passed in tensors are non "
-                                "contiguous and cant be treated as transposes");
+    a = a.contiguous();
+    b = b.contiguous();
   }
 
   return {a_transp, b_transp};
@@ -198,31 +197,33 @@ static std::pair<bool, bool> verify_contiguity(const Tensor &a,
 
 Tensor matmul(const Tensor &a, const Tensor &b, Tensor &out, int64_t B,
               int64_t M, int64_t K, int64_t N) {
-  assert(a.dtype() == b.dtype());
-  assert(a.device() == Device::CUDA);
+  Tensor ac = a;
+  Tensor bc = b;
+  assert(ac.dtype() == bc.dtype());
+  assert(ac.device() == Device::CUDA);
 
   dim3 grid((N + 127) / 128, (M + 127) / 128, B);
   dim3 block(128);
 
   // Check for contiguousness
-  auto [at, bt] = verify_contiguity(a, b);
+  auto [at, bt] = verify_contiguity(ac, bc);
 
-  DISPATCH_OP(a.dtype(), [&] {
+  DISPATCH_OP(ac.dtype(), [&] {
     if (at && bt) {
       matmul_kernel<scalar_t, true, true>
-          <<<grid, block>>>(a.data_ptr<scalar_t>(), b.data_ptr<scalar_t>(),
+          <<<grid, block>>>(ac.data_ptr<scalar_t>(), bc.data_ptr<scalar_t>(),
                             out.data_ptr<scalar_t>(), M, K, N);
     } else if (at && !bt) {
       matmul_kernel<scalar_t, true, false>
-          <<<grid, block>>>(a.data_ptr<scalar_t>(), b.data_ptr<scalar_t>(),
+          <<<grid, block>>>(ac.data_ptr<scalar_t>(), bc.data_ptr<scalar_t>(),
                             out.data_ptr<scalar_t>(), M, K, N);
     } else if (!at && bt) {
       matmul_kernel<scalar_t, false, true>
-          <<<grid, block>>>(a.data_ptr<scalar_t>(), b.data_ptr<scalar_t>(),
+          <<<grid, block>>>(ac.data_ptr<scalar_t>(), bc.data_ptr<scalar_t>(),
                             out.data_ptr<scalar_t>(), M, K, N);
     } else {
       matmul_kernel<scalar_t, false, false>
-          <<<grid, block>>>(a.data_ptr<scalar_t>(), b.data_ptr<scalar_t>(),
+          <<<grid, block>>>(ac.data_ptr<scalar_t>(), bc.data_ptr<scalar_t>(),
                             out.data_ptr<scalar_t>(), M, K, N);
     }
   });

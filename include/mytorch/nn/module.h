@@ -90,6 +90,18 @@ private:
   ag::VarPtr _gain;
 };
 
+class MultiHeadSelfAttention : public Module {
+public:
+  MultiHeadSelfAttention(int64_t d_model, int64_t n_heads, int64_t max_context,
+                         DType dtype = DType::Float32, Device dev = CPU);
+  ag::VarPtr forward(ag::VarPtr inp) override;
+
+private:
+  ag::VarPtr _Wq, _Wk, _Wv, _Wo;
+  int64_t _d_model, _n_heads, _max_context;
+  Tensor _causal_mask;
+};
+
 } // namespace nn
 } // namespace torch
 

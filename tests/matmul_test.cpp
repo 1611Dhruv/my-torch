@@ -40,10 +40,14 @@ using Shape = std::vector<int64_t>;
 // R % 9 == 1 (R = 64, 100, 190, ...) that collapses to (i + j) % 9, which is
 // symmetric in i and j. A transposed operand would then be indistinguishable
 // from a contiguous one and a broken transpose path would silently pass.
-static std::vector<float> gen(int64_t n) {
+// `salt` distinguishes operands. Without it gen(n) depends only on the length,
+// so whenever M*K == K*N the two operands hold IDENTICAL data and swapping A
+// for B is undetectable -- every square same-size test would pass against a
+// kernel that ignores one of its inputs entirely.
+static std::vector<float> gen(int64_t n, uint32_t salt = 0) {
   std::vector<float> v(n);
   for (int64_t p = 0; p < n; ++p) {
-    uint32_t h = static_cast<uint32_t>(p) * 2654435761u; // Knuth multiplicative
+    uint32_t h = (static_cast<uint32_t>(p) + salt * 0x9E3779B9u) * 2654435761u;
     v[p] = static_cast<float>(static_cast<int32_t>(h % 9u) - 4);
   }
   return v;
@@ -125,7 +129,7 @@ static Tensor cuda_operand(const std::vector<float> &logical, int64_t R, int64_t
 // Run A[MxK] * B[KxN] on CUDA with either operand optionally handed in as a
 // transposed view, and check the result against the oracle.
 static void check_cuda_matmul(int64_t M, int64_t K, int64_t N, bool a_view, bool b_view) {
-  auto ha = gen(M * K), hb = gen(K * N);
+  auto ha = gen(M * K), hb = gen(K * N, 1);
   Tensor a = cuda_operand(ha, M, K, a_view);
   Tensor b = cuda_operand(hb, K, N, b_view);
 
@@ -174,7 +178,7 @@ TEST(MatmulCpuTest, SquareKnownValues) {
 TEST(MatmulCpuTest, RectangularMatchesOracle) {
   // Non-square, distinct M, K, N -- catches row/col/stride index swaps.
   const int64_t M = 2, K = 3, N = 4;
-  auto ha = gen(M * K), hb = gen(K * N);
+  auto ha = gen(M * K), hb = gen(K * N, 1);
   Tensor a = make_cpu({M, K}, ha);
   Tensor b = make_cpu({K, N}, hb);
   Tensor out = torch::matmul(a, b);
@@ -197,7 +201,7 @@ TEST(MatmulCpuTest, IdentityIsNoOp) {
 
 TEST(MatmulCpuTest, LargerNonDivisibleMatchesOracle) {
   const int64_t M = 17, K = 23, N = 13;
-  auto ha = gen(M * K), hb = gen(K * N);
+  auto ha = gen(M * K), hb = gen(K * N, 1);
   Tensor a = make_cpu({M, K}, ha);
   Tensor b = make_cpu({K, N}, hb);
   Tensor out = torch::matmul(a, b);
@@ -207,7 +211,7 @@ TEST(MatmulCpuTest, LargerNonDivisibleMatchesOracle) {
 
 TEST(MatmulCpuTest, DoesNotMutateInputs) {
   const int64_t M = 2, K = 3, N = 2;
-  auto ha = gen(M * K), hb = gen(K * N);
+  auto ha = gen(M * K), hb = gen(K * N, 1);
   Tensor a = make_cpu({M, K}, ha);
   Tensor b = make_cpu({K, N}, hb);
   (void)torch::matmul(a, b);
@@ -222,7 +226,7 @@ TEST(MatmulCpuTest, DoesNotMutateInputs) {
 TEST(CudaMatmulTest, SquareWithinOneTile) {
   // 4x4: fits in a single 32x32 tile, no K-loop iteration past the first.
   const int64_t M = 4, K = 4, N = 4;
-  auto ha = gen(M * K), hb = gen(K * N);
+  auto ha = gen(M * K), hb = gen(K * N, 1);
   auto got = run_cuda_matmul(ha, hb, M, K, N);
   auto want = reference_matmul(ha, hb, M, K, N);
   for (int64_t p = 0; p < M * N; ++p)
@@ -232,7 +236,7 @@ TEST(CudaMatmulTest, SquareWithinOneTile) {
 TEST(CudaMatmulTest, MultiTileSquare) {
   // 64x64: exactly 2x2 tiles, clean multiple of TILE -- multi-K-tile path.
   const int64_t M = 64, K = 64, N = 64;
-  auto ha = gen(M * K), hb = gen(K * N);
+  auto ha = gen(M * K), hb = gen(K * N, 1);
   auto got = run_cuda_matmul(ha, hb, M, K, N);
   auto want = reference_matmul(ha, hb, M, K, N);
   for (int64_t p = 0; p < M * N; ++p)
@@ -243,7 +247,7 @@ TEST(CudaMatmulTest, NonDivisibleSquareExercisesEdgeGuards) {
   // 67x67x67: none of the dims are a multiple of 32, so every boundary tile
   // has out-of-range loads. This is THE edge-guard test.
   const int64_t M = 67, K = 67, N = 67;
-  auto ha = gen(M * K), hb = gen(K * N);
+  auto ha = gen(M * K), hb = gen(K * N, 1);
   auto got = run_cuda_matmul(ha, hb, M, K, N);
   auto want = reference_matmul(ha, hb, M, K, N);
   for (int64_t p = 0; p < M * N; ++p)
@@ -253,7 +257,7 @@ TEST(CudaMatmulTest, NonDivisibleSquareExercisesEdgeGuards) {
 TEST(CudaMatmulTest, RectangularNonDivisible) {
   // Distinct, non-divisible M, K, N -- ragged edges on all three dims at once.
   const int64_t M = 70, K = 45, N = 33;
-  auto ha = gen(M * K), hb = gen(K * N);
+  auto ha = gen(M * K), hb = gen(K * N, 1);
   auto got = run_cuda_matmul(ha, hb, M, K, N);
   auto want = reference_matmul(ha, hb, M, K, N);
   for (int64_t p = 0; p < M * N; ++p)
@@ -332,7 +336,7 @@ TEST(CudaMatmulTransposeTest, TransposedMatchesMaterializedContiguous) {
   // matmul to bit-identical results (same values, same accumulation order --
   // the kernel differs only in how it fills shared memory).
   const int64_t M = 70, K = 45, N = 33;
-  auto ha = gen(M * K), hb = gen(K * N);
+  auto ha = gen(M * K), hb = gen(K * N, 1);
 
   Tensor a_view = cuda_operand(ha, M, K, /*via_transpose=*/true);
   Tensor b_view = cuda_operand(hb, K, N, /*via_transpose=*/true);
@@ -355,7 +359,7 @@ TEST(CudaMatmulTransposeTest, DoubleTransposeIsContiguousAgain) {
   ASSERT_TRUE(twice.is_contiguous());
   ASSERT_EQ(twice.shape(), Shape({8, 8}));
 
-  auto ha = gen(64), hb = gen(64);
+  auto ha = gen(64), hb = gen(64, 1);
   Tensor b = make_cuda({8, 8}, hb);
   Tensor a2 = make_cuda({8, 8}, ha);
   auto got = to_host(torch::matmul(a2.transpose(0, 1).transpose(0, 1), b));
@@ -382,7 +386,7 @@ TEST(CudaMatmulTransposeTest, DispatcherAcceptsTransposedOperands) {
   // torch::matmul validates on *logical* shape, so a transposed view with
   // matching inner dims must route through rather than throw.
   const int64_t M = 33, K = 40, N = 17;
-  auto ha = gen(M * K), hb = gen(K * N);
+  auto ha = gen(M * K), hb = gen(K * N, 1);
   Tensor a = cuda_operand(ha, M, K, /*via_transpose=*/true);
   Tensor b = cuda_operand(hb, K, N, /*via_transpose=*/true);
 
@@ -413,7 +417,7 @@ TEST(CudaMatmulTransposeTest, DispatcherStillChecksLogicalInnerDims) {
 
 TEST(CpuMatmulTransposeTest, TransposedMatchesOracle) {
   const int64_t M = 5, K = 7, N = 3;
-  auto ha = gen(M * K), hb = gen(K * N);
+  auto ha = gen(M * K), hb = gen(K * N, 1);
   Tensor a = make_cpu({K, M}, host_transpose(ha, M, K)).transpose(0, 1);
   Tensor b = make_cpu({N, K}, host_transpose(hb, K, N)).transpose(0, 1);
   ASSERT_FALSE(a.is_contiguous());
@@ -426,7 +430,7 @@ TEST(CpuMatmulTransposeTest, TransposedMatchesOracle) {
 
 TEST(CpuMatmulTransposeTest, OnlyATransposedMatchesOracle) {
   const int64_t M = 5, K = 7, N = 3;
-  auto ha = gen(M * K), hb = gen(K * N);
+  auto ha = gen(M * K), hb = gen(K * N, 1);
   Tensor a = make_cpu({K, M}, host_transpose(ha, M, K)).transpose(0, 1);
   Tensor b = make_cpu({K, N}, hb);
   Tensor out = torch::matmul(a, b);
@@ -435,7 +439,7 @@ TEST(CpuMatmulTransposeTest, OnlyATransposedMatchesOracle) {
 
 TEST(CpuMatmulTransposeTest, OnlyBTransposedMatchesOracle) {
   const int64_t M = 5, K = 7, N = 3;
-  auto ha = gen(M * K), hb = gen(K * N);
+  auto ha = gen(M * K), hb = gen(K * N, 1);
   Tensor a = make_cpu({M, K}, ha);
   Tensor b = make_cpu({N, K}, host_transpose(hb, K, N)).transpose(0, 1);
   Tensor out = torch::matmul(a, b);
@@ -458,7 +462,7 @@ TEST(CpuMatmulTransposeTest, NormalizationDoesNotMutateTheInput) {
 
 TEST(CpuMatmulTransposeTest, DispatcherRoutesTransposedCpuOperands) {
   const int64_t M = 5, K = 7, N = 3;
-  auto ha = gen(M * K), hb = gen(K * N);
+  auto ha = gen(M * K), hb = gen(K * N, 1);
   Tensor a = make_cpu({M, K}, ha);
   Tensor b = make_cpu({N, K}, host_transpose(hb, K, N)).transpose(0, 1);
   Tensor out = torch::matmul(a, b);
@@ -497,7 +501,7 @@ TEST(BatchedCpuMatmulTest, Rank3MatchesPerBatchOracle) {
   // B=2 with distinct M,K,N. gen() varies over the flat index, so the two
   // slabs hold different data -- a kernel that ignores `b` fails here.
   const int64_t B = 2, M = 3, K = 4, N = 5;
-  auto ha = gen(B * M * K), hb = gen(B * K * N);
+  auto ha = gen(B * M * K), hb = gen(B * K * N, 1);
   Tensor a = make_cpu({B, M, K}, ha);
   Tensor b = make_cpu({B, K, N}, hb);
   Tensor out = torch::matmul(a, b);
@@ -508,7 +512,7 @@ TEST(BatchedCpuMatmulTest, Rank3MatchesPerBatchOracle) {
 TEST(BatchedCpuMatmulTest, BatchOfOneEqualsPlainMatmul) {
   // {1,M,K} @ {1,K,N} must agree with the 2-D path and keep its rank-3 shape.
   const int64_t M = 3, K = 4, N = 5;
-  auto ha = gen(M * K), hb = gen(K * N);
+  auto ha = gen(M * K), hb = gen(K * N, 1);
   Tensor out = torch::matmul(make_cpu({1, M, K}, ha), make_cpu({1, K, N}, hb));
   EXPECT_EQ(out.shape(), Shape({1, M, N}));
   expect_close(out, reference_matmul(ha, hb, M, K, N));
@@ -519,7 +523,7 @@ TEST(BatchedCpuMatmulTest, Rank4CollapsesAndRestoresLogicalShape) {
   // {2,3,M,N}, not {6,M,N}. This is the reshape-back test.
   const int64_t B0 = 2, B1 = 3, M = 3, K = 4, N = 2;
   const int64_t B = B0 * B1;
-  auto ha = gen(B * M * K), hb = gen(B * K * N);
+  auto ha = gen(B * M * K), hb = gen(B * K * N, 1);
   Tensor a = make_cpu({B0, B1, M, K}, ha);
   Tensor b = make_cpu({B0, B1, K, N}, hb);
   Tensor out = torch::matmul(a, b);
@@ -532,7 +536,7 @@ TEST(BatchedCpuMatmulTest, BatchedTransposedOperandIsNormalized) {
   // transpose(-1,-2) on batched tensors, so a per-batch-transposed view has to
   // survive both the .contiguous() copy and the collapse to {B,M,K}.
   const int64_t B = 2, M = 3, K = 4, N = 5;
-  auto ha = gen(B * M * K), hb = gen(B * K * N);
+  auto ha = gen(B * M * K), hb = gen(B * K * N, 1);
 
   // Store A as {B,K,M} (each slab transposed), then view it back as {B,M,K}.
   std::vector<float> backing;
@@ -584,7 +588,7 @@ TEST(BatchedCpuMatmulTest, InnerDimCheckedOnTrailingDimsNotBatchDims) {
 TEST(BatchedCpuMatmulTest, BroadcastsBareMatrixOverBatch) {
   // The nn::Linear shape: x{B,T,in} @ W{in,out} -> {B,T,out}, same W reused.
   const int64_t B = 2, M = 3, K = 4, N = 5;
-  auto ha = gen(B * M * K), hb = gen(K * N);
+  auto ha = gen(B * M * K), hb = gen(K * N, 1);
   Tensor out = torch::matmul(make_cpu({B, M, K}, ha), make_cpu({K, N}, hb));
   ASSERT_EQ(out.shape(), Shape({B, M, N}));
 
@@ -599,7 +603,7 @@ TEST(BatchedCpuMatmulTest, BroadcastsBareMatrixOverBatch) {
 // {M,K} @ {B,K,N} the A-side batch list is empty. Enable once that's fixed.
 TEST(BatchedCpuMatmulTest, BroadcastsBareMatrixOnTheLeft) {
   const int64_t B = 2, M = 3, K = 4, N = 5;
-  auto ha = gen(M * K), hb = gen(B * K * N);
+  auto ha = gen(M * K), hb = gen(B * K * N, 1);
   Tensor out = torch::matmul(make_cpu({M, K}, ha), make_cpu({B, K, N}, hb));
   ASSERT_EQ(out.shape(), Shape({B, M, N}));
 
@@ -624,7 +628,7 @@ TEST(MatmulDispatchTest, ValidCpuShapesDoNotThrow) {
 TEST(MatmulDispatchTest, RoutesCpuAndComputes) {
   // End-to-end through the dispatcher on CPU, checked against the oracle.
   const int64_t M = 3, K = 4, N = 2;
-  auto ha = gen(M * K), hb = gen(K * N);
+  auto ha = gen(M * K), hb = gen(K * N, 1);
   Tensor a = make_cpu({M, K}, ha);
   Tensor b = make_cpu({K, N}, hb);
   Tensor out = torch::matmul(a, b);
@@ -663,7 +667,7 @@ TEST(MatmulDispatchTest, DeviceMismatchThrows) {
 TEST(MatmulDispatchTest, RoutesCudaAndComputes) {
   // Valid CUDA operands route to the GPU kernel and match the oracle.
   const int64_t M = 33, K = 40, N = 17;
-  auto ha = gen(M * K), hb = gen(K * N);
+  auto ha = gen(M * K), hb = gen(K * N, 1);
   Tensor a({M, K}, DType::Float32, CUDA);
   Tensor b({K, N}, DType::Float32, CUDA);
   CUDA_CHECK(cudaMemcpy(a.data_ptr<float>(), ha.data(), M * K * sizeof(float), cudaMemcpyHostToDevice));
@@ -695,7 +699,7 @@ TEST(MatmulDispatchTest, RoutesCudaAndComputes) {
 // If a_transposed, A is stored as {B,K,M} and viewed through transpose(-1,-2),
 // so the strided load path and the batch offset have to compose correctly.
 static void check_cuda_batched(int64_t B, int64_t M, int64_t K, int64_t N, bool a_transposed) {
-  auto ha = gen(B * M * K), hb = gen(B * K * N);
+  auto ha = gen(B * M * K), hb = gen(B * K * N, 1);
 
   Tensor a = [&] {
     if (!a_transposed)
@@ -760,7 +764,7 @@ TEST(CudaBatchedMatmulTest, BatchedTransposedOperand) {
 TEST(CudaBatchedMatmulTest, Rank4CollapsesAndRestoresLogicalShape) {
   const int64_t B0 = 2, B1 = 3, M = 24, K = 40, N = 17;
   const int64_t B = B0 * B1;
-  auto ha = gen(B * M * K), hb = gen(B * K * N);
+  auto ha = gen(B * M * K), hb = gen(B * K * N, 1);
   Tensor c = torch::matmul(make_cuda({B0, B1, M, K}, ha), make_cuda({B0, B1, K, N}, hb));
   ASSERT_EQ(c.shape(), Shape({B0, B1, M, N}));
 

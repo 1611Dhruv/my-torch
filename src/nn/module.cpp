@@ -1,4 +1,5 @@
 #include "mytorch/autograd.h"
+#include "mytorch/storage.h"
 #include <cmath>
 #include <mytorch/nn/module.h>
 #include <string>
@@ -118,6 +119,86 @@ ag::VarPtr RMSNorm::forward(ag::VarPtr x) {
       ag::shift(ag::scale(ag::sum(ag::mult(x, x), {-1}, true), 1 / H), eps));
   auto norm = ag::div(x, rms);
   return ag::mult(_gain, norm);
+}
+
+// MultiHeadSelfAttention
+MultiHeadSelfAttention::MultiHeadSelfAttention(int64_t d_model, int64_t n_heads,
+                                               int64_t max_context, DType dtype,
+                                               Device dev)
+    : _causal_mask({max_context, max_context}, DType::Float32, CPU),
+      _d_model(d_model),
+      _n_heads(n_heads),
+      _max_context(max_context) {
+  if (d_model % n_heads) {
+    throw std::invalid_argument(
+        "The Attention model heads must divide model dim");
+  }
+  _Wq = register_param(
+      "Wq", ag::Variable::leaf(
+                torch::Tensor::randn({d_model, d_model}).to(dtype, dev)));
+  _Wk = register_param(
+      "Wk", ag::Variable::leaf(
+                torch::Tensor::randn({d_model, d_model}).to(dtype, dev)));
+  _Wv = register_param(
+      "Wv", ag::Variable::leaf(
+                torch::Tensor::randn({d_model, d_model}).to(dtype, dev)));
+  _Wo = register_param(
+      "Wo", ag::Variable::leaf(
+                torch::Tensor::randn({d_model, d_model}).to(dtype, dev)));
+  for (int64_t i = 0; i < max_context; i++) {
+    for (int64_t j = 0; j <= i; j++) {
+      _causal_mask[i][j].item<double>() = -1e11;
+    }
+  }
+  _causal_mask = _causal_mask.to(dtype, dev);
+}
+
+// Assume we got {T, N}
+ag::VarPtr MultiHeadSelfAttention::forward(ag::VarPtr inp) {
+  auto inp_shape = inp->data().shape();
+  if (inp_shape.size() < 2) {
+    // TODO: Could be changed to warning? but nah throw is right
+    throw std::logic_error("MHA called with only one dim");
+  }
+
+  int N = inp_shape.size();
+  int64_t d_model = inp_shape[N - 1];
+  int64_t T = inp_shape[N - 2];
+
+  if (d_model != _d_model) {
+    throw std::logic_error("MHA called with diff model dim");
+  }
+
+  if (T > _max_context) {
+    throw std::logic_error("MHA called with longer context than supported one");
+  }
+
+  int64_t B = 1;
+  for (int i = N - 3; i >= 0; i--) {
+    B *= inp_shape[i];
+  }
+  auto d_head = _d_model / _n_heads;
+
+  auto Q = ag::matmul(inp, _Wq);
+  auto K = ag::matmul(inp, _Wk);
+  auto V = ag::matmul(inp, _Wv);
+
+  // Make Q, K , V into (n_head, T, d_head)
+  auto q_h = ag::transpose(ag::reshape(Q, {B, T, _n_heads, d_head}), 1, 2);
+  auto k_h = ag::transpose(ag::reshape(K, {B, T, _n_heads, d_head}), 1, 2);
+  auto v_h = ag::transpose(ag::reshape(V, {B, T, _n_heads, d_head}), 1, 2);
+
+  auto qkt =
+      ag::scale(ag::matmul(q_h, ag::transpose(k_h, -1, -2)), 1.0 / d_model);
+  // Mask qkt
+  qkt->data() =
+      torch::add(qkt->data(), _causal_mask.slice(0, 0, T).slice(1, 0, T));
+  auto sft = ag::softmax(qkt);
+  // {B, n_h, T, d_h}
+  auto head_out = ag::matmul(sft, v_h);
+  auto merge_back = ag::reshape(ag::transpose(head_out, 1, 2), inp_shape);
+  auto res = ag::matmul(merge_back, V);
+  return res;
 }
 
 } // namespace nn

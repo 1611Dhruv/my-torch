@@ -70,6 +70,7 @@ VarPtr cos(VarPtr a);
 VarPtr exp(VarPtr a);
 VarPtr ln(VarPtr a);
 VarPtr sqrt(VarPtr a);
+
 VarPtr scale(VarPtr a, double s);
 VarPtr shift(VarPtr a, double s);
 
