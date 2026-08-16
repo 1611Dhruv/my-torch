@@ -4,6 +4,7 @@
 #include "mytorch/storage.h"
 #include <cstdint>
 #include <iostream>
+#include <optional>
 #include <stdfloat>
 #include <vector>
 
@@ -26,6 +27,8 @@ public:
   Tensor transpose(int64_t dim1, int64_t dim2) const;
   Tensor contiguous() const;
   Tensor squeeze(std::vector<int64_t> dims) const;
+  Tensor slice(int64_t dim, std::optional<int64_t> start = {},
+               std::optional<int64_t> end = {}, int64_t step = 1) const;
 
   // TODO: Need a to method to move across things
   Tensor to(DType dtype, Device dev) const;

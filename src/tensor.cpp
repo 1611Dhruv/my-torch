@@ -175,6 +175,35 @@ Tensor Tensor::squeeze(std::vector<int64_t> dims) const {
   return Tensor(_storage, new_shape, new_stride, _offset, _dtype);
 }
 
+Tensor Tensor::slice(int64_t dim, std::optional<int64_t> start,
+                     std::optional<int64_t> end, int64_t step) const {
+  if (dim < 0)
+    dim += ndim();
+  if (dim < 0 || dim >= ndim()) {
+    throw std::invalid_argument("slice: The dimension must be within bounds");
+  }
+
+  if (!start.has_value())
+    start = 0;
+  if (!end.has_value())
+    end = _shape[dim];
+
+  if (start < 0 || end < start || end > _shape[dim]) {
+    throw std::invalid_argument("slice: 0 <= start <= end <= shape[dim]");
+  }
+
+  auto new_shape = _shape;
+  auto new_strides = _strides;
+  auto new_off = _offset;
+
+  new_off += _strides[dim] * *start;
+  new_shape[dim] =
+      (*end - *start + step - 1) /
+      step; // How many elems in [start, end) if we skip every step?
+  new_strides[dim] *= step;
+  return Tensor(_storage, new_shape, new_strides, new_off, _dtype);
+}
+
 Tensor Tensor::broadcast_to(std::vector<int64_t> target) const {
   int64_t target_dim = target.size();
   int64_t src_dim = _shape.size();

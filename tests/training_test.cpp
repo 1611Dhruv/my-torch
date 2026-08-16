@@ -19,6 +19,7 @@
 #include "mytorch/nn/module.h"
 #include "mytorch/optim.h"
 #include "mytorch/tensor.h"
+#include <cmath>
 #include <gtest/gtest.h>
 #include <memory>
 #include <vector>
@@ -239,4 +240,146 @@ TEST(TrainingTest, MlpLearnsXor) {
   const float want[4] = {0, 1, 1, 0};
   for (int i = 0; i < 4; ++i)
     EXPECT_NEAR(pred[i], want[i], 0.15f) << "wrong prediction at row " << i;
+}
+
+// ===========================================================================
+// Normalization layers
+//
+// Both norms had six bugs at once when first written, and every one of them
+// was silent: unregistered parameters (the optimizer never sees gamma/beta, so
+// the model trains slightly worse forever), a missing keep_dim (broadcasts
+// only line up when d_model happens to equal seq_len), and a missing epsilon
+// (NaN on any constant row). These pin all three shapes of failure.
+// ===========================================================================
+
+// Shapes chosen so H(=8) != T(=3) != B(=2): if a reduction collapses the wrong
+// axis, the broadcast cannot accidentally succeed.
+static constexpr int64_t NB = 2, NT = 3, NH = 8;
+
+TEST(NormTest, ParametersAreRegistered) {
+  // register_param is what puts gamma/beta in params(). Skip it and the module
+  // still runs -- it just never learns, with no error anywhere.
+  EXPECT_EQ(nn::RMSNorm(NH).params().size(), 1u) << "RMSNorm should expose gain";
+  EXPECT_EQ(nn::LayerNorm(NH).params().size(), 2u)
+      << "LayerNorm should expose gain and bias";
+}
+
+TEST(NormTest, GainStartsAtOneAndBiasAtZero) {
+  // gamma initialized to randn (or zeros) rescales every feature at init and
+  // looks exactly like a broken backward.
+  nn::LayerNorm ln(NH);
+  for (auto &[name, p] : ln.named_params()) {
+    const float *v = p->data().data_ptr<float>();
+    float want = (name.find("bias") != std::string::npos) ? 0.0f : 1.0f;
+    for (int64_t i = 0; i < p->data().numel(); ++i)
+      EXPECT_FLOAT_EQ(v[i], want) << name << "[" << i << "]";
+  }
+}
+
+TEST(NormTest, PreservesShapeWhenFeatureDimDiffersFromSeqLen) {
+  // The keep_dim guard. With H != T a collapsed reduction throws or produces
+  // the wrong shape instead of silently working.
+  auto x = input(NB * NT, NH, std::vector<float>(NB * NT * NH, 0.7f));
+  nn::RMSNorm rms(NH);
+  nn::LayerNorm ln(NH);
+  EXPECT_EQ(rms(x)->data().shape(), std::vector<int64_t>({NB * NT, NH}));
+  EXPECT_EQ(ln(x)->data().shape(), std::vector<int64_t>({NB * NT, NH}));
+}
+
+TEST(NormTest, ConstantRowStaysFiniteBecauseOfEpsilon) {
+  // A constant row has zero variance, so LayerNorm divides by sqrt(0) without
+  // eps. Padded and zero-initialized sequences look exactly like this, and the
+  // resulting NaN passes silently through every tolerance comparison you have.
+  std::vector<float> flat(NB * NT * NH, 3.5f);
+  auto x = input(NB * NT, NH, flat);
+
+  nn::LayerNorm ln(NH);
+  nn::RMSNorm rms(NH);
+  auto a = ln(x);
+  auto b = rms(x);
+  const float *pa = a->data().data_ptr<float>();
+  const float *pb = b->data().data_ptr<float>();
+  for (int64_t i = 0; i < a->data().numel(); ++i) {
+    EXPECT_TRUE(std::isfinite(pa[i])) << "LayerNorm produced non-finite at " << i;
+    EXPECT_TRUE(std::isfinite(pb[i])) << "RMSNorm produced non-finite at " << i;
+  }
+}
+
+TEST(NormTest, LayerNormOutputHasZeroMeanAndUnitVarianceAtDefaultInit) {
+  // With gain=1 and bias=0 the definition is checkable directly: each row of
+  // the output must have mean 0 and variance 1. This is the invariant test --
+  // gradcheck can only tell you the backward matches the forward, not that the
+  // forward is normalization.
+  std::vector<float> vals;
+  for (int64_t i = 0; i < NB * NT * NH; ++i)
+    vals.push_back(static_cast<float>((i * 37 % 11)) - 5.0f);
+  auto x = input(NB * NT, NH, vals);
+
+  nn::LayerNorm ln(NH);
+  auto y = ln(x);
+  const float *p = y->data().data_ptr<float>();
+
+  for (int64_t r = 0; r < NB * NT; ++r) {
+    double mean = 0.0;
+    for (int64_t c = 0; c < NH; ++c)
+      mean += p[r * NH + c];
+    mean /= NH;
+    double var = 0.0;
+    for (int64_t c = 0; c < NH; ++c) {
+      double d = p[r * NH + c] - mean;
+      var += d * d;
+    }
+    var /= NH;
+    EXPECT_NEAR(mean, 0.0, 1e-5) << "row " << r << " mean";
+    EXPECT_NEAR(var, 1.0, 1e-3) << "row " << r << " variance";
+  }
+}
+
+TEST(NormTest, RmsNormScalesRowsToUnitRootMeanSquare) {
+  std::vector<float> vals;
+  for (int64_t i = 0; i < NB * NT * NH; ++i)
+    vals.push_back(static_cast<float>((i * 29 % 13)) - 6.0f);
+  auto x = input(NB * NT, NH, vals);
+
+  nn::RMSNorm rms(NH);
+  auto y = rms(x);
+  const float *p = y->data().data_ptr<float>();
+
+  for (int64_t r = 0; r < NB * NT; ++r) {
+    double ms = 0.0;
+    for (int64_t c = 0; c < NH; ++c)
+      ms += static_cast<double>(p[r * NH + c]) * p[r * NH + c];
+    EXPECT_NEAR(std::sqrt(ms / NH), 1.0, 1e-3) << "row " << r << " rms";
+  }
+}
+
+TEST(NormTest, NormParametersReceiveGradientsAndTrain) {
+  // End to end: the norm's own parameters must move under the optimizer. This
+  // is what an unregistered parameter actually costs you.
+  torch::manual_seed(0);
+  auto x = input(4, NH, std::vector<float>(4 * NH, 0.3f));
+  auto y = input(4, NH, std::vector<float>(4 * NH, 2.0f));
+
+  nn::LayerNorm ln(NH);
+  SGD opt(ln.params(), 0.05f);
+
+  auto gain = param_named(ln, "gain");
+  ASSERT_NE(gain, nullptr);
+  std::vector<float> before(gain->data().data_ptr<float>(),
+                            gain->data().data_ptr<float>() + NH);
+
+  float first = 0.0f, last = 0.0f;
+  for (int i = 0; i < 200; ++i) {
+    float l = step(ln, opt, x, y);
+    if (i == 0)
+      first = l;
+    last = l;
+  }
+  EXPECT_LT(last, first) << "norm parameters are not learning";
+
+  const float *after = gain->data().data_ptr<float>();
+  bool moved = false;
+  for (int64_t i = 0; i < NH; ++i)
+    moved |= (before[i] != after[i]);
+  EXPECT_TRUE(moved) << "gain never changed -- is it registered?";
 }
