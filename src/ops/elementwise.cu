@@ -228,7 +228,7 @@ Tensor relu(const Tensor &a, Tensor &out) {
     // max(a,b) =
     // (a + b) / 2 + abs(a - b) / 2
     // a/2 + b/2 + a/2 - b/2
-    return (x + abs(x)) / 2;
+    return x > 0 ? x : 0;
   });
 }
 Tensor relu_back(const Tensor &a, const Tensor &g, Tensor &out) {
