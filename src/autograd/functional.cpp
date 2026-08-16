@@ -114,7 +114,7 @@ VarPtr matmul(VarPtr a, VarPtr b) {
                           backward);
 }
 
-VarPtr sum(VarPtr a, std::vector<int64_t> dims) {
+VarPtr sum(VarPtr a, std::vector<int64_t> dims, bool keep_dim) {
   auto kept_dim = torch::sum(a->data(), dims, true);
 
   auto backward = [a, kept_dim](const Tensor &g) -> void {
@@ -122,10 +122,12 @@ VarPtr sum(VarPtr a, std::vector<int64_t> dims) {
     a->accumulate_grad(g1);
   };
 
-  return Variable::fromOp(kept_dim.squeeze({}), {a}, backward);
+  if (!keep_dim)
+    return Variable::fromOp(kept_dim.squeeze({}), {a}, backward);
+  return Variable::fromOp(kept_dim, {a}, backward);
 }
 
-VarPtr max(VarPtr a, std::vector<int64_t> dims) {
+VarPtr max(VarPtr a, std::vector<int64_t> dims, bool keep_dim) {
   auto kept_dim = torch::max(a->data(), dims, true);
 
   auto backward = [a, kept_dim](const Tensor &g) -> void {
@@ -139,7 +141,9 @@ VarPtr max(VarPtr a, std::vector<int64_t> dims) {
     a->accumulate_grad(g1);
   };
 
-  return Variable::fromOp(kept_dim.squeeze({}), {a}, backward);
+  if (!keep_dim)
+    return Variable::fromOp(kept_dim.squeeze({}), {a}, backward);
+  return Variable::fromOp(kept_dim, {a}, backward);
 }
 
 VarPtr relu(VarPtr a) {
@@ -216,6 +220,16 @@ VarPtr scale(VarPtr &a, double s) {
   };
 
   return Variable::fromOp(torch::scale(a->data(), s), {a}, backward);
+}
+
+VarPtr softmax(VarPtr a, int64_t dim) {
+  namespace ag = torch::autograd;
+  auto mx = ag::max(a, {dim}, true);
+  auto norm = ag::sub(a, mx);
+  auto exp = ag::exp(norm);
+  auto sm = ag::sum(exp, {dim}, true);
+  auto soft_mx = ag::div(exp, sm);
+  return soft_mx;
 }
 
 } // namespace autograd

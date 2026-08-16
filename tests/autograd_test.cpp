@@ -329,6 +329,16 @@ TEST(AutogradNumerical, Max) {
                  {a});
 }
 
+TEST(AutogradNumerical, Softmax) {
+  auto a = torch::Tensor::randn({2, 3, 4}).to(torch::DType::Float64,
+                                              torch::Device::CPU);
+  gradient_check("softmax",
+                 [&](std::vector<torch::autograd::VarPtr> inps) {
+                   return torch::autograd::softmax(inps[0], 1);
+                 },
+                 {a});
+}
+
 // --- forward values (runnable now) ------------------------------------------
 
 TEST(AutogradForward, Add) {
@@ -723,4 +733,60 @@ TEST(AutogradNumerical, SumAllAxes) {
       "sum all",
       [](std::vector<ag::VarPtr> in) { return ag::sum(in[0], {0, 1, 2}); },
       {hp({2, 3, 4}, Device::CPU)});
+}
+
+// ===========================================================================
+// softmax
+//
+// Composed from max/sub/exp/sum/div, so its backward comes free from the graph.
+// Two things need pinning that gradcheck alone won't tell you:
+//
+//   1. It must normalize along `dim`, not over the whole tensor. A softmax
+//      reduced over the wrong axes still produces plausible positive numbers
+//      that look fine in a gradcheck -- only the row sums give it away.
+//   2. It must survive large inputs. Without the max subtraction, exp(100)
+//      overflows to inf and inf/inf is NaN -- and NaN silently passes the
+//      tolerance comparison, so it has to be checked directly.
+// ===========================================================================
+
+// Every slice along the last axis of a contiguous tensor must sum to 1.
+static void expect_rows_normalized(const Tensor &y, int64_t rows, int64_t cols) {
+  for (int64_t r = 0; r < rows; ++r) {
+    double s = 0.0;
+    for (int64_t c = 0; c < cols; ++c) {
+      double v = elem_get(y, r * cols + c);
+      ASSERT_TRUE(std::isfinite(v)) << "non-finite at row " << r << " col " << c;
+      EXPECT_GT(v, 0.0) << "softmax outputs must be positive";
+      s += v;
+    }
+    EXPECT_NEAR(s, 1.0, 1e-9) << "row " << r << " does not sum to 1";
+  }
+}
+
+TEST(AutogradSoftmax, SumsToOneAlongLastDim) {
+  // {2,3,4} -> 6 rows of 4. Note V(=4) != T(=3) deliberately: if the reduction
+  // used the wrong axis it cannot accidentally line up.
+  auto v = Variable::leaf(hp({2, 3, 4}, Device::CPU), false);
+  expect_rows_normalized(ag::softmax(v, -1)->data(), 6, 4);
+}
+
+TEST(AutogradSoftmax, SumsToOneAlongLastDimCuda) {
+  auto v = Variable::leaf(hp({2, 3, 4}, Device::CUDA), false);
+  expect_rows_normalized(ag::softmax(v, -1)->data(), 6, 4);
+}
+
+TEST(AutogradSoftmax, StableWithLargeInputs) {
+  // exp(100) is inf in float64 too. If the max subtraction is missing or
+  // reduced over the wrong axis, this comes back NaN.
+  auto t = torch::Tensor::randn({2, 3, 4}, Device::CPU, 100, 5)
+               .to(torch::DType::Float64, Device::CPU);
+  auto v = Variable::leaf(t, false);
+  expect_rows_normalized(ag::softmax(v, -1)->data(), 6, 4);
+}
+
+TEST(AutogradSoftmax, StableWithLargeInputsCuda) {
+  auto t = torch::Tensor::randn({2, 3, 4}, Device::CPU, 100, 5)
+               .to(torch::DType::Float64, Device::CUDA);
+  auto v = Variable::leaf(t, false);
+  expect_rows_normalized(ag::softmax(v, -1)->data(), 6, 4);
 }
