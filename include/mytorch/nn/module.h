@@ -102,6 +102,42 @@ private:
   Tensor _causal_mask;
 };
 
+class FFN : public Module {
+public:
+  FFN(int64_t d_model, int64_t d_ff, DType dtype = DType::Float32,
+      Device dev = CPU);
+  ag::VarPtr forward(ag::VarPtr inp) override;
+
+private:
+  ag::VarPtr _W1, _W2;
+};
+
+class TransformerBlock : public Module {
+public:
+  TransformerBlock(int64_t d_model, int64_t d_ff, int64_t n_heads,
+                   int64_t max_context, DType dtype = DType::Float32,
+                   Device dev = CPU);
+  ag::VarPtr forward(ag::VarPtr inp) override;
+
+private:
+  MultiHeadSelfAttention _atten;
+  RMSNorm _n1, _n2;
+  FFN _ff;
+};
+
+class Transformer : public Module {
+public:
+  Transformer(int64_t vocab_size, int64_t d_model, int64_t d_ff,
+              int64_t n_blocks, int64_t max_context,
+              DType dtype = DType::Float32, Device dev = Device::CPU);
+  ag::VarPtr forward(ag::VarPtr inp) override;
+
+private:
+  ag::VarPtr _pe;
+  std::vector<std::shared_ptr<TransformerBlock>> _blocks;
+  // Linear _unembed;
+};
+
 } // namespace nn
 } // namespace torch
 

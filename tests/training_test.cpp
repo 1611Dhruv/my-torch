@@ -383,3 +383,161 @@ TEST(NormTest, NormParametersReceiveGradientsAndTrain) {
     moved |= (before[i] != after[i]);
   EXPECT_TRUE(moved) << "gain never changed -- is it registered?";
 }
+
+// ===========================================================================
+// MultiHeadSelfAttention
+//
+// Attention is the easiest layer in the stack to get "plausible but wrong":
+// every bug below still produces a correctly-shaped tensor of finite numbers,
+// and a model containing it still trains -- just worse. So these tests check
+// properties, not values.
+//
+// The load-bearing one is IsCausal. A decoder's output at position t must not
+// depend on any input after t. That single property catches an inverted mask,
+// a missing mask, a mask added after the softmax, and a mask broadcast along
+// the wrong axis -- none of which change the output shape or produce a NaN.
+// ===========================================================================
+
+// A {B,T,D} Float32 leaf from row-major values.
+static VarPtr seq_input(int64_t B, int64_t T, int64_t D,
+                        const std::vector<float> &vals) {
+  Tensor t({B, T, D}, DType::Float32, CPU);
+  EXPECT_EQ(static_cast<int64_t>(vals.size()), t.numel());
+  float *p = t.data_ptr<float>();
+  for (size_t i = 0; i < vals.size(); ++i)
+    p[i] = vals[i];
+  return Variable::leaf(t, false);
+}
+
+static std::vector<float> varied(int64_t n, uint32_t salt = 0) {
+  std::vector<float> v(n);
+  for (int64_t i = 0; i < n; ++i) {
+    uint32_t h = (static_cast<uint32_t>(i) + salt * 0x9E3779B9u) * 2654435761u;
+    v[i] = static_cast<float>(static_cast<int32_t>(h % 17u) - 8) * 0.1f;
+  }
+  return v;
+}
+
+TEST(MhaTest, ConstructsAndExposesFourParameters) {
+  torch::manual_seed(0);
+  nn::MultiHeadSelfAttention mha(8, 2, 4);
+  EXPECT_EQ(mha.params().size(), 4u) << "expected Wq, Wk, Wv, Wo";
+}
+
+TEST(MhaTest, RejectsHeadCountThatDoesNotDivideModelDim) {
+  EXPECT_THROW(nn::MultiHeadSelfAttention(10, 4, 4), std::invalid_argument);
+}
+
+TEST(MhaTest, RejectsContextLongerThanConfigured) {
+  torch::manual_seed(0);
+  nn::MultiHeadSelfAttention mha(8, 2, /*max_context=*/4);
+  auto x = seq_input(1, 6, 8, varied(48));
+  EXPECT_ANY_THROW(mha(x));
+}
+
+TEST(MhaTest, PreservesInputShape) {
+  torch::manual_seed(0);
+  // Every sublayer must return the residual-stream shape so it can be added
+  // back. If the output projection is applied to the wrong operand this fails
+  // (or throws) rather than silently producing the wrong rank.
+  const int64_t B = 2, T = 4, D = 8;
+  nn::MultiHeadSelfAttention mha(D, 2, T);
+  auto x = seq_input(B, T, D, varied(B * T * D));
+  auto y = mha(x);
+  EXPECT_EQ(y->data().shape(), std::vector<int64_t>({B, T, D}));
+}
+
+TEST(MhaTest, IsCausal) {
+  // Perturb the LAST position of the sequence. Every output position strictly
+  // before it must be bit-identical, because a causal mask forbids attending
+  // forward. With the mask inverted (masking j <= i instead of j > i) position
+  // 0 attends only to the future, so this fails immediately.
+  const int64_t B = 1, T = 5, D = 8;
+  torch::manual_seed(0);
+  nn::MultiHeadSelfAttention mha(D, 2, T);
+
+  auto base = varied(B * T * D);
+  auto y0 = mha(seq_input(B, T, D, base));
+  std::vector<float> out0(y0->data().data_ptr<float>(),
+                          y0->data().data_ptr<float>() + y0->data().numel());
+
+  auto bumped = base;
+  for (int64_t k = 0; k < D; ++k)
+    bumped[(T - 1) * D + k] += 5.0f; // only the final token changes
+  auto y1 = mha(seq_input(B, T, D, bumped));
+  const float *out1 = y1->data().data_ptr<float>();
+
+  for (int64_t t = 0; t + 1 < T; ++t)
+    for (int64_t k = 0; k < D; ++k) {
+      int64_t i = t * D + k;
+      EXPECT_FLOAT_EQ(out0[i], out1[i])
+          << "output at position " << t << " changed when position " << (T - 1)
+          << " was perturbed -- attention is looking into the future";
+    }
+}
+
+TEST(MhaTest, LaterPositionsDoDependOnEarlierOnes) {
+  // The converse of IsCausal, so a mask that blocks *everything* can't pass by
+  // making all outputs constant.
+  const int64_t B = 1, T = 5, D = 8;
+  torch::manual_seed(0);
+  nn::MultiHeadSelfAttention mha(D, 2, T);
+
+  auto base = varied(B * T * D);
+  auto y0 = mha(seq_input(B, T, D, base));
+  std::vector<float> out0(y0->data().data_ptr<float>(),
+                          y0->data().data_ptr<float>() + y0->data().numel());
+
+  auto bumped = base;
+  for (int64_t k = 0; k < D; ++k)
+    bumped[k] += 5.0f; // perturb position 0
+  auto y1 = mha(seq_input(B, T, D, bumped));
+  const float *out1 = y1->data().data_ptr<float>();
+
+  bool changed = false;
+  for (int64_t k = 0; k < D; ++k)
+    changed |= (out0[(T - 1) * D + k] != out1[(T - 1) * D + k]);
+  EXPECT_TRUE(changed) << "the last position ignores the first -- is everything masked?";
+}
+
+TEST(MhaTest, ProducesFiniteOutputs) {
+  torch::manual_seed(0);
+  // -inf in the mask, or a fully-masked row, gives NaN -- which passes every
+  // tolerance comparison in this file silently.
+  const int64_t B = 2, T = 4, D = 8;
+  nn::MultiHeadSelfAttention mha(D, 2, T);
+  auto y = mha(seq_input(B, T, D, varied(B * T * D)));
+  const float *p = y->data().data_ptr<float>();
+  for (int64_t i = 0; i < y->data().numel(); ++i)
+    ASSERT_TRUE(std::isfinite(p[i])) << "non-finite output at " << i;
+}
+
+TEST(MhaTest, EveryParameterReceivesAGradient) {
+  torch::manual_seed(0);
+  const int64_t B = 2, T = 4, D = 8;
+  nn::MultiHeadSelfAttention mha(D, 2, T);
+  auto x = seq_input(B, T, D, varied(B * T * D));
+  auto y = seq_input(B, T, D, varied(B * T * D, 1));
+
+  MSE(mha(x), y).backward();
+  for (auto &[name, p] : mha.named_params())
+    EXPECT_TRUE(p->has_grad()) << name << " received no gradient";
+}
+
+TEST(MhaTest, TrainsOnAToySequence) {
+  const int64_t B = 2, T = 4, D = 8;
+  torch::manual_seed(0);
+  nn::MultiHeadSelfAttention mha(D, 2, T);
+  auto x = seq_input(B, T, D, varied(B * T * D));
+  auto y = seq_input(B, T, D, varied(B * T * D, 1));
+  SGD opt(mha.params(), 0.01f);
+
+  float first = 0.0f, last = 0.0f;
+  for (int i = 0; i < 300; ++i) {
+    float l = step(mha, opt, x, y);
+    if (i == 0)
+      first = l;
+    last = l;
+  }
+  EXPECT_LT(last, first) << "attention is not learning at all";
+}

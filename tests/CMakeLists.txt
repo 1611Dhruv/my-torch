@@ -39,3 +39,7 @@ gtest_discover_tests(reduction_test)
 add_executable(training_test training_test.cpp)
 target_link_libraries(training_test PRIVATE mytorch GTest::gtest_main)
 gtest_discover_tests(training_test)
+
+add_executable(transformer_test transformer_test.cpp)
+target_link_libraries(transformer_test PRIVATE mytorch GTest::gtest_main)
+gtest_discover_tests(transformer_test)

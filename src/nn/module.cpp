@@ -47,6 +47,10 @@ void Module::to(DType dtype, Device dev) {
   for (auto &p : params()) {
     p->data() = p->data().to(dtype, dev);
   }
+
+  for (auto &[n, m] : _modules) {
+    m->to(dtype, dev);
+  }
 }
 
 void Module::register_module(const std::string &name, Module *module) {
@@ -146,8 +150,8 @@ MultiHeadSelfAttention::MultiHeadSelfAttention(int64_t d_model, int64_t n_heads,
       "Wo", ag::Variable::leaf(
                 torch::Tensor::randn({d_model, d_model}).to(dtype, dev)));
   for (int64_t i = 0; i < max_context; i++) {
-    for (int64_t j = 0; j <= i; j++) {
-      _causal_mask[i][j].item<double>() = -1e11;
+    for (int64_t j = 0; j < max_context; j++) {
+      _causal_mask[i][j].item<float>() = (j > i) ? -1e11 : 0;
     }
   }
   _causal_mask = _causal_mask.to(dtype, dev);
@@ -188,18 +192,68 @@ ag::VarPtr MultiHeadSelfAttention::forward(ag::VarPtr inp) {
   auto k_h = ag::transpose(ag::reshape(K, {B, T, _n_heads, d_head}), 1, 2);
   auto v_h = ag::transpose(ag::reshape(V, {B, T, _n_heads, d_head}), 1, 2);
 
-  auto qkt =
-      ag::scale(ag::matmul(q_h, ag::transpose(k_h, -1, -2)), 1.0 / d_model);
+  auto qkt = ag::scale(ag::matmul(q_h, ag::transpose(k_h, -1, -2)),
+                       1.0 / std::sqrt(d_head));
   // Mask qkt
-  qkt->data() =
-      torch::add(qkt->data(), _causal_mask.slice(0, 0, T).slice(1, 0, T));
-  auto sft = ag::softmax(qkt);
+  auto msk =
+      ag::Variable::leaf(_causal_mask.slice(0, 0, T).slice(1, 0, T), false);
+  auto sft = ag::softmax(ag::add(qkt, msk));
   // {B, n_h, T, d_h}
   auto head_out = ag::matmul(sft, v_h);
   auto merge_back = ag::reshape(ag::transpose(head_out, 1, 2), inp_shape);
-  auto res = ag::matmul(merge_back, V);
+  auto res = ag::matmul(merge_back, _Wo);
   return res;
 }
+
+// FFN
+FFN::FFN(int64_t d_model, int64_t d_ff, DType dtype, Device dev) {
+  _W1 = register_param(
+      "W1", ag::Variable::leaf(Tensor::randn({d_model, d_ff}).to(dtype, dev)));
+  _W2 = register_param(
+      "W2", ag::Variable::leaf(Tensor::randn({d_ff, d_model}).to(dtype, dev)));
+}
+
+ag::VarPtr FFN::forward(ag::VarPtr inp) {
+  return ag::matmul(ag::relu(ag::matmul(inp, _W1)), _W2);
+}
+
+// Transformer Block
+TransformerBlock::TransformerBlock(int64_t d_model, int64_t d_ff,
+                                   int64_t n_heads, int64_t max_context,
+                                   DType dtype, Device dev)
+    : _atten(d_model, n_heads, max_context, dtype, dev),
+      _ff(d_model, d_ff, dtype, dev),
+      _n1(d_model, dtype, dev),
+      _n2(d_model, dtype, dev) {
+  register_module("norm1", &_n1);
+  register_module("mha", &_atten);
+  register_module("norm2", &_n2);
+  register_module("ff", &_ff);
+}
+
+ag::VarPtr TransformerBlock::forward(ag::VarPtr inp) {
+  return _ff(_n2(_atten(_n1(inp))));
+}
+
+// Transformer
+Transformer::Transformer(int64_t vocab_size, int64_t d_model, int64_t d_ff,
+                         int64_t n_blocks, int64_t max_context, DType dtype,
+                         Device dev) {
+  //: _unembed(d_model, vocab_size, dtype, dev) {
+  for (int i = 0; i < n_blocks; i++) {
+    _blocks.emplace_back(
+        std::make_shared<TransformerBlock>(d_model, d_ff, 8, 1024, dtype, dev));
+    register_module("block " + std::to_string(i), _blocks.back().get());
+  }
+  // register_module("unembed", &_unembed);
+}
+ag::VarPtr Transformer::forward(ag::VarPtr inp) {
+  auto res = inp;
+  for (auto &m : _blocks) {
+    res = m->forward(inp);
+  }
+  return res;
+};
 
 } // namespace nn
 } // namespace torch
