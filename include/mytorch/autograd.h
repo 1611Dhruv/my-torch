@@ -87,6 +87,7 @@ VarPtr div(VarPtr a, VarPtr b);
 
 // Special kernels
 VarPtr relu(VarPtr a);
+VarPtr flash_atten(VarPtr Q, VarPtr K, VarPtr V);
 
 } // namespace autograd
 } // namespace torch

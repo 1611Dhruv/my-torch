@@ -26,6 +26,7 @@ add_library(mytorch
   src/ops/dispatch.cpp
   src/ops/reductions.cpp
   src/ops/reductions.cu
+  src/ops/flash.cu
   src/autograd/functional.cpp
   src/nn/module.cpp
   src/optim.cpp

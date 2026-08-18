@@ -291,4 +291,56 @@ Tensor cast(const Tensor &a, DType out_type) {
   }
 }
 
+// Takes Q,K,V and a output state
+Tensor flash_atten(const Tensor &Q, const Tensor &K, const Tensor &V,
+                   Tensor &LSE, bool causal) {
+  auto supported = [](const Tensor &x) {
+    return x.device() == CUDA && x.dtype() == DType::Float32;
+  };
+
+  if (supported(Q) && supported(K) && supported(V) && supported(LSE)) {
+    // Now we perform normalization business
+
+    // First contigify them
+    auto Q_contig = Q.contiguous();
+    auto K_contig = K.contiguous();
+    auto V_contig = V.contiguous();
+
+    if (Q_contig.shape() != K_contig.shape() ||
+        K_contig.shape() != V_contig.shape() ||
+        V_contig.shape() != Q_contig.shape()) {
+      throw std::invalid_argument("Q, K, V dont all agree on same shape");
+    }
+
+    auto shape = Q_contig.shape();
+    auto d_h = shape.back();
+    shape.pop_back();
+    if (LSE.shape() != shape) {
+      throw std::invalid_argument("LSE doesn't match with provided Q,K,V");
+    }
+    auto T = shape.back();
+    shape.pop_back();
+    auto B = 1;
+    for (auto s : shape)
+      B *= s;
+
+    Q_contig = Q_contig.reshape({B, T, d_h});
+    K_contig = K_contig.reshape({B, T, d_h});
+    V_contig = V_contig.reshape({B, T, d_h});
+    LSE = LSE.reshape({B, T});
+    Tensor out = Tensor::zeros_like(Q_contig);
+    torch::cuda::flash_atten(Q_contig, K_contig, V_contig, LSE, out, causal);
+    // reshape back
+    shape.push_back(T);
+    LSE = LSE.reshape(shape);
+    shape.push_back(d_h);
+    out = out.reshape(shape);
+    return out;
+  } else {
+    throw std::invalid_argument("One of Q, K, V, LSE is not on CUDA and is not "
+                                "Float32, please cast .to()");
+  }
+}
+}
+
 } // namespace torch

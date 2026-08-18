@@ -238,5 +238,18 @@ VarPtr softmax(VarPtr a, int64_t dim) {
   return soft_mx;
 }
 
+VarPtr flash_atten(VarPtr Q, VarPtr K, VarPtr V, bool causal) {
+  // {B, n, T, d}
+  auto shp = Q->data().shape();
+  shp.pop_back();
+  auto LSE = Tensor::zeros(shp, Q->data().dtype(), Q->data().device());
+  auto backward = [](const Tensor &g) {
+    // pass
+  };
+  return Variable::fromOp(
+      torch::flash_atten(Q->data(), K->data(), V->data(), LSE, causal),
+      {Q, K, V}, backward);
+}
+
 } // namespace autograd
 } // namespace torch
