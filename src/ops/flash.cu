@@ -13,7 +13,7 @@ template <const int D_HEAD, const bool CAUSAL, const int BM = 32,
 __global__ void flash(const scalar_t *Q, const scalar_t *K, const scalar_t *V,
                       scalar_t *LSE, scalar_t *O, int64_t N) {
   __shared__ scalar_t Qs[BM][D_HEAD];
-  // To avoid bank conflicts
+  // To avoid bank conflicts ugh bank aint banking
   __shared__ scalar_t Ks[BN][D_HEAD + 1];
   __shared__ scalar_t Vs[BN][D_HEAD];
 
@@ -158,12 +158,7 @@ __global__ void flash(const scalar_t *Q, const scalar_t *K, const scalar_t *V,
 }
 
 Tensor flash_atten(const Tensor &Q, const Tensor &K, const Tensor &V,
-
                    Tensor &LSE, Tensor &out, bool causal) {
-  auto Q_contig = Q.contiguous();
-  auto K_contig = K.contiguous();
-  auto V_contig = V.contiguous();
-
   auto shape = Q.shape();
   int64_t shape_sz = shape.size();
 
@@ -171,64 +166,71 @@ Tensor flash_atten(const Tensor &Q, const Tensor &K, const Tensor &V,
   int d_head = shape[shape_sz - 1];
 
   if (d_head == 32) {
-    constexpr int BM = 256;
+    constexpr int BM = 128;
     constexpr int BN = 32;
     constexpr int T = 512;
 
-    int ng = (N + BM - 1) / BM;
+    dim3 ng((N + BM - 1) / BM, shape[0]);
     if (causal) {
-      flash<64, true, BM, BN, T>
+      flash<32, true, BM, BN, T>
           <<<ng, T>>>(Q.data_ptr<scalar_t>(), K.data_ptr<scalar_t>(),
                       V.data_ptr<scalar_t>(), LSE.data_ptr<scalar_t>(),
                       out.data_ptr<scalar_t>(), N);
     } else {
-      flash<64, true, BM, BN, T>
+      flash<32, false, BM, BN, T>
           <<<ng, T>>>(Q.data_ptr<scalar_t>(), K.data_ptr<scalar_t>(),
                       V.data_ptr<scalar_t>(), LSE.data_ptr<scalar_t>(),
                       out.data_ptr<scalar_t>(), N);
     }
   } else if (d_head == 64) {
-    constexpr int BM = 128;
-    constexpr int BN = 32;
-    constexpr int T = 512;
-
-    int ng = (N + BM - 1) / BM;
-    if (causal) {
-      flash<64, true, BM, BN, T>
-          <<<ng, T>>>(Q.data_ptr<scalar_t>(), K.data_ptr<scalar_t>(),
-                      V.data_ptr<scalar_t>(), LSE.data_ptr<scalar_t>(),
-                      out.data_ptr<scalar_t>(), N);
-    } else {
-      flash<64, true, BM, BN, T>
-          <<<ng, T>>>(Q.data_ptr<scalar_t>(), K.data_ptr<scalar_t>(),
-                      V.data_ptr<scalar_t>(), LSE.data_ptr<scalar_t>(),
-                      out.data_ptr<scalar_t>(), N);
-    }
-  } else if (d_head == 128) {
     constexpr int BM = 64;
     constexpr int BN = 32;
     constexpr int T = 512;
 
-    int ng = (N + BM - 1) / BM;
+    dim3 ng((N + BM - 1) / BM, shape[0]);
     if (causal) {
       flash<64, true, BM, BN, T>
           <<<ng, T>>>(Q.data_ptr<scalar_t>(), K.data_ptr<scalar_t>(),
                       V.data_ptr<scalar_t>(), LSE.data_ptr<scalar_t>(),
                       out.data_ptr<scalar_t>(), N);
     } else {
-      flash<64, true, BM, BN, T>
+      flash<64, false, BM, BN, T>
           <<<ng, T>>>(Q.data_ptr<scalar_t>(), K.data_ptr<scalar_t>(),
                       V.data_ptr<scalar_t>(), LSE.data_ptr<scalar_t>(),
                       out.data_ptr<scalar_t>(), N);
     }
+    /* } else if (d_head == 128) { // BUG: 128 aint fitting gang
+       constexpr int BM = 32;
+       constexpr int BN = 32;
+       constexpr int T = 512;
+
+       dim3 ng((N + BM - 1) / BM, shape[0]);
+       if (causal) {
+         flash<128, true, BM, BN, T>
+             <<<ng, T>>>(Q.data_ptr<scalar_t>(), K.data_ptr<scalar_t>(),
+                         V.data_ptr<scalar_t>(), LSE.data_ptr<scalar_t>(),
+                         out.data_ptr<scalar_t>(), N);
+       } else {
+         flash<128, false, BM, BN, T>
+             <<<ng, T>>>(Q.data_ptr<scalar_t>(), K.data_ptr<scalar_t>(),
+                         V.data_ptr<scalar_t>(), LSE.data_ptr<scalar_t>(),
+                         out.data_ptr<scalar_t>(), N);
+       } */
   } else {
     throw std::invalid_argument(
-        "cuda flash_atten: Expecting d_head to be 32, 64 or 128 got: " +
+        "cuda flash_atten: Expecting d_head to be 32, 64 or 128(BUG) got: " +
         std::to_string(d_head));
   }
 
   CUDA_CHECK(cudaGetLastError());
+  return out;
 }
+
+// Backward
+
+Tensor flash_back(const Tensor &Q, const Tensor &K, const Tensor &V,
+                  const Tensor &dO, const Tensor &LGE, Tensor &dQ, Tensor &dK,
+                  Tensor &dV) {}
 
 } // namespace cuda
 } // namespace torch

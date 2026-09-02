@@ -28,6 +28,9 @@ Tensor relu_back(const Tensor &a, const Tensor &g);
 Tensor flash_atten(const Tensor &Q, const Tensor &K, const Tensor &V,
                    Tensor &LSE, bool causal);
 
+std::tuple<Tensor, Tensor, Tensor> flash_back(const Tensor &Q, const Tensor &K,
+                                              const Tensor &V, const Tensor &dO,
+                                              const Tensor &LGE);
 // Reductions
 Tensor sum(const Tensor &a, std::vector<int64_t> dims, bool keep_dim = true);
 Tensor max(const Tensor &a, std::vector<int64_t> dims, bool keep_dim = true);
@@ -114,6 +117,9 @@ Tensor relu(const Tensor &a, Tensor &out);
 Tensor relu_back(const Tensor &a, const Tensor &g, Tensor &out);
 Tensor flash_atten(const Tensor &Q, const Tensor &K, const Tensor &V,
                    Tensor &LSE, Tensor &out, bool causal);
+Tensor flash_back(const Tensor &Q, const Tensor &K, const Tensor &V,
+                  const Tensor &dO, const Tensor &LGE, Tensor &dQ, Tensor &dK,
+                  Tensor &dV);
 
 Tensor cast(const Tensor &a, Tensor &out);
 
