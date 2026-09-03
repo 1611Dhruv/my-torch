@@ -226,11 +226,83 @@ Tensor flash_atten(const Tensor &Q, const Tensor &K, const Tensor &V,
   return out;
 }
 
-// Backward
+/*
+Calculates D_i = rowsum (dO ⊙ O)
+*/
+template <const int T, const int BS>
+__global__ void helper_di_kernel(const scalar_t *O, const scalar_t *dO,
+                                 scalar_t *D, int64_t D_HEAD, int64_t N) {
+  constexpr int WPER = BS / (T >> 5);
 
-Tensor flash_back(const Tensor &Q, const Tensor &K, const Tensor &V,
-                  const Tensor &dO, const Tensor &LGE, Tensor &dQ, Tensor &dK,
-                  Tensor &dV) {}
+  const int batch_off = blockIdx.y;
+  O += batch_off * BS * D_HEAD;
+  dO += batch_off * BS * D_HEAD;
+  D += batch_off * BS;
+
+  const int row_off = blockIdx.x * BS;
+  const int tid = threadIdx.x;
+  const int wid = tid >> 5;
+  const int lid = tid & 31;
+
+  const int woff = wid * WPER;
+  scalar_t acc{};
+  for (int row = row_off + woff; row < row_off + woff + WPER && row < N;
+       row++) {
+    for (int c = lid; c < D_HEAD; c += 32) {
+      acc += O[row * D_HEAD + c] * dO[row * D_HEAD + c];
+    }
+
+#pragma unroll
+    for (int off = 16; off >= 1; off /= 2) {
+      acc += __shfl_xor_sync(0xffffffff, acc, off);
+    }
+
+    if (lid == 0)
+      D[row] = acc;
+  }
+}
+
+// Backward
+template <const int T>
+__global__ void flash_back_kernel(const scalar_t *O, const scalar_t *Q,
+                                  const scalar_t *K, const scalar_t *V,
+                                  const scalar_t *dO, const scalar_t *LGE,
+                                  const scalar_t *D, scalar_t *dQ, scalar_t *dK,
+                                  scalar_t *dV, int D_H, int B) {}
+
+/*
+
+D = rowsum(O ⨀ dO)
+dS = dP ⨀ P - P ⨀ {D}
+dV = P^dO
+dP = dO V^
+sqrt(dk) S = QK^
+P = exp(S - {LGE})
+dQ = sqrt(dk) dS K
+dK = sqrt(dk) dS^Q
+
+ */
+Tensor flash_back(const Tensor &O, const Tensor &Q, const Tensor &K,
+                  const Tensor &V, const Tensor &dO, const Tensor &LGE,
+                  Tensor &dQ, Tensor &dK, Tensor &dV) {
+  const auto &shape = O.shape();
+  const auto &sz = shape.size();
+
+  int64_t D_H = shape[sz - 1];
+  int64_t N = shape[sz - 2];
+  int64_t B = shape[sz - 3];
+
+  constexpr int T = 256;
+  constexpr int BS = 32;
+  dim3 blk(T);
+  dim3 grid((N + BS - 1) / BS, B);
+
+  Tensor D = Tensor::zeros_like(LGE);
+  helper_di_kernel<T, BS><<<grid, blk>>>(O.data_ptr<scalar_t>(),
+                                         dO.data_ptr<scalar_t>(),
+                                         D.data_ptr<scalar_t>(), D_H, N);
+  CUDA_CHECK(cudaGetLastError());
+}
 
 } // namespace cuda
 } // namespace torch
