@@ -235,9 +235,9 @@ __global__ void helper_di_kernel(const scalar_t *O, const scalar_t *dO,
   constexpr int WPER = BS / (T >> 5);
 
   const int batch_off = blockIdx.y;
-  O += batch_off * BS * D_HEAD;
-  dO += batch_off * BS * D_HEAD;
-  D += batch_off * BS;
+  O += batch_off * N * D_HEAD;
+  dO += batch_off * N * D_HEAD;
+  D += batch_off * N;
 
   const int row_off = blockIdx.x * BS;
   const int tid = threadIdx.x;
@@ -269,7 +269,7 @@ __global__ void flash_back_kernel(const scalar_t *O, const scalar_t *Q,
                                   const scalar_t *K, const scalar_t *V,
                                   const scalar_t *dO, const scalar_t *LSE,
                                   const scalar_t *D, scalar_t *dQ, scalar_t *dK,
-                                  scalar_t *dV, int N) {
+                                  scalar_t *dV, int N, bool causal) {
 
   // BD + BD  + BD + BD + B + B^2 + B^2
   __shared__ scalar_t Qs[BS][D_H];
@@ -351,6 +351,9 @@ __global__ void flash_back_kernel(const scalar_t *O, const scalar_t *Q,
         Ps[lr][lc] += Qs[lr][k] * Ks[lc][k];
       }
       Ps[lr][lc] = __expf(Ps[lr][lc] * RSQRT_DH - LSEs[lr]);
+      if (causal && (koff + lc) > (qoff + lr)) {
+        Ps[lr][lc] = 0;
+      }
     }
 
     __syncthreads();
@@ -446,9 +449,9 @@ dQ = sqrt(dk) dS K
 dK = sqrt(dk) dS^Q
 
  */
-Tensor flash_back(const Tensor &O, const Tensor &Q, const Tensor &K,
-                  const Tensor &V, const Tensor &dO, const Tensor &LSE,
-                  Tensor &dQ, Tensor &dK, Tensor &dV) {
+void flash_back(const Tensor &O, const Tensor &Q, const Tensor &K,
+                const Tensor &V, const Tensor &dO, const Tensor &LSE,
+                Tensor &dQ, Tensor &dK, Tensor &dV, bool causal) {
   const auto &shape = O.shape();
   const auto &sz = shape.size();
 
@@ -460,7 +463,7 @@ Tensor flash_back(const Tensor &O, const Tensor &Q, const Tensor &K,
   // Blk for the launch so launch param names can be reused
   {
     constexpr int T = 256;
-    constexpr int BS = 32;
+    constexpr int BS = 48;
 
     dim3 blk(T);
     dim3 grid((N + BS - 1) / BS, B);
@@ -473,43 +476,36 @@ Tensor flash_back(const Tensor &O, const Tensor &Q, const Tensor &K,
 
   if (D_H == 32) {
     constexpr int T = 256;
-    constexpr int BS = 10;
+    constexpr int BS = 48;
     constexpr int CD_H = 32;
 
     dim3 blk(T);
     dim3 grid((N + BS - 1) / BS, B);
-    flash_back_kernel<T, CD_H, BS>
-        <<<grid, blk>>>(O.data_ptr<scalar_t>(), Q.data_ptr<scalar_t>(),
-                        K.data_ptr<scalar_t>(), V.data_ptr<scalar_t>(),
-                        dO.data_ptr<scalar_t>(), LSE.data_ptr<scalar_t>(),
-                        D.data_ptr<scalar_t>(), dQ.data_ptr<scalar_t>(),
-                        dK.data_ptr<scalar_t>(), dV.data_ptr<scalar_t>(), N);
+    flash_back_kernel<T, CD_H, BS><<<grid, blk>>>(
+        O.data_ptr<scalar_t>(), Q.data_ptr<scalar_t>(), K.data_ptr<scalar_t>(),
+        V.data_ptr<scalar_t>(), dO.data_ptr<scalar_t>(),
+        LSE.data_ptr<scalar_t>(), D.data_ptr<scalar_t>(),
+        dQ.data_ptr<scalar_t>(), dK.data_ptr<scalar_t>(),
+        dV.data_ptr<scalar_t>(), N, causal);
+    CUDA_CHECK(cudaGetLastError());
   } else if (D_H == 64) {
     constexpr int T = 256;
-    constexpr int BS = 10;
-    constexpr int CD_H = 32;
+    constexpr int BS = 32;
+    constexpr int CD_H = 64;
 
     dim3 blk(T);
     dim3 grid((N + BS - 1) / BS, B);
-    flash_back_kernel<T, CD_H, BS>
-        <<<grid, blk>>>(O.data_ptr<scalar_t>(), Q.data_ptr<scalar_t>(),
-                        K.data_ptr<scalar_t>(), V.data_ptr<scalar_t>(),
-                        dO.data_ptr<scalar_t>(), LSE.data_ptr<scalar_t>(),
-                        D.data_ptr<scalar_t>(), dQ.data_ptr<scalar_t>(),
-                        dK.data_ptr<scalar_t>(), dV.data_ptr<scalar_t>(), N);
-  } else if (D_H == 128) {
-    constexpr int T = 256;
-    constexpr int BS = 10;
-    constexpr int CD_H = 32;
-
-    dim3 blk(T);
-    dim3 grid((N + BS - 1) / BS, B);
-    flash_back_kernel<T, CD_H, BS>
-        <<<grid, blk>>>(O.data_ptr<scalar_t>(), Q.data_ptr<scalar_t>(),
-                        K.data_ptr<scalar_t>(), V.data_ptr<scalar_t>(),
-                        dO.data_ptr<scalar_t>(), LSE.data_ptr<scalar_t>(),
-                        D.data_ptr<scalar_t>(), dQ.data_ptr<scalar_t>(),
-                        dK.data_ptr<scalar_t>(), dV.data_ptr<scalar_t>(), N);
+    flash_back_kernel<T, CD_H, BS><<<grid, blk>>>(
+        O.data_ptr<scalar_t>(), Q.data_ptr<scalar_t>(), K.data_ptr<scalar_t>(),
+        V.data_ptr<scalar_t>(), dO.data_ptr<scalar_t>(),
+        LSE.data_ptr<scalar_t>(), D.data_ptr<scalar_t>(),
+        dQ.data_ptr<scalar_t>(), dK.data_ptr<scalar_t>(),
+        dV.data_ptr<scalar_t>(), N, causal);
+    CUDA_CHECK(cudaGetLastError());
+  } else {
+    throw std::invalid_argument(
+        "cuda flash_atten: Expecting d_head to be 32, 64 or 128(BUG) got: " +
+        std::to_string(D_H));
   }
 }
 

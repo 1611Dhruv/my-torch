@@ -243,12 +243,16 @@ VarPtr flash_atten(VarPtr Q, VarPtr K, VarPtr V, bool causal) {
   auto shp = Q->data().shape();
   shp.pop_back();
   auto LSE = Tensor::zeros(shp, Q->data().dtype(), Q->data().device());
-  auto backward = [](const Tensor &g) {
-    // pass
+  auto O = torch::flash_atten(Q->data(), K->data(), V->data(), LSE, causal);
+
+  auto backward = [O, LSE, Q, K, V, causal](const Tensor &g) {
+    auto [dQ, dK, dV] =
+        flash_back(O, Q->data(), K->data(), V->data(), g, LSE, causal);
+    Q->accumulate_grad(dQ);
+    K->accumulate_grad(dK);
+    V->accumulate_grad(dV);
   };
-  return Variable::fromOp(
-      torch::flash_atten(Q->data(), K->data(), V->data(), LSE, causal),
-      {Q, K, V}, backward);
+  return Variable::fromOp(O, {Q, K, V}, backward);
 }
 
 } // namespace autograd

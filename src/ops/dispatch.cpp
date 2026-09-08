@@ -342,9 +342,10 @@ Tensor flash_atten(const Tensor &Q, const Tensor &K, const Tensor &V,
   }
 }
 
-std::tuple<Tensor, Tensor, Tensor> flash_back(const Tensor &Q, const Tensor &K,
-                                              const Tensor &V, const Tensor &dO,
-                                              const Tensor &LSE) {
+std::tuple<Tensor, Tensor, Tensor> flash_back(const Tensor &O, const Tensor &Q,
+                                              const Tensor &K, const Tensor &V,
+                                              const Tensor &dO,
+                                              const Tensor &LSE, bool causal) {
   auto supported = [](const Tensor &x) {
     return x.device() == CUDA && x.dtype() == DType::Float32;
   };
@@ -357,6 +358,7 @@ std::tuple<Tensor, Tensor, Tensor> flash_back(const Tensor &Q, const Tensor &K,
     auto Q_contig = Q.contiguous();
     auto K_contig = K.contiguous();
     auto V_contig = V.contiguous();
+    auto O_contig = O.contiguous();
 
     if (Q_contig.shape() != K_contig.shape() ||
         K_contig.shape() != V_contig.shape() ||
@@ -365,6 +367,10 @@ std::tuple<Tensor, Tensor, Tensor> flash_back(const Tensor &Q, const Tensor &K,
     }
 
     auto shape = Q_contig.shape();
+    if (O_contig.shape() != shape) {
+      throw std::invalid_argument("O dont all agree on same shape");
+    }
+
     auto d_h = shape.back();
     shape.pop_back();
     if (LSE.shape() != shape) {
@@ -379,14 +385,16 @@ std::tuple<Tensor, Tensor, Tensor> flash_back(const Tensor &Q, const Tensor &K,
     Q_contig = Q_contig.reshape({B, T, d_h});
     K_contig = K_contig.reshape({B, T, d_h});
     V_contig = V_contig.reshape({B, T, d_h});
+    O_contig = O_contig.reshape({B, T, d_h});
+
     auto dO_contig = dO.contiguous().reshape({B, T, d_h});
     auto LSE_resp = LSE.reshape({B, T});
 
     Tensor dQ = Tensor::zeros_like(Q_contig);
     Tensor dK = Tensor::zeros_like(K_contig);
     Tensor dV = Tensor::zeros_like(V_contig);
-    torch::cuda::flash_back(Q_contig, K_contig, V_contig, dO_contig, LSE_resp,
-                            dQ, dK, dV);
+    torch::cuda::flash_back(O_contig, Q_contig, K_contig, V_contig, dO_contig,
+                            LSE_resp, dQ, dK, dV, causal);
 
     // reshape back
     shape.push_back(T);
