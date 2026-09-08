@@ -37,6 +37,24 @@ struct ReduceDims {
   int64_t keep_stride[MAX_DIM];
 };
 
+// Adding newtons sqrt method
+/*
+
+   f(x) - a <-- root?
+   x0 <-- f(x0) == 0? no
+  x1 = x0 - f(x0) / f'(x0)
+
+ */
+constexpr float csqrt(float a) {
+  float x = a;
+  float prev = 0;
+  while (x != prev) {
+    prev = x;
+    x = (x * x + a) / (2 * x);
+  }
+  return x;
+}
+
 } // namespace torch
 
 #endif // CUDA_UTILS_H

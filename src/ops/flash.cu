@@ -248,6 +248,7 @@ __global__ void helper_di_kernel(const scalar_t *O, const scalar_t *dO,
   scalar_t acc{};
   for (int row = row_off + woff; row < row_off + woff + WPER && row < N;
        row++) {
+    acc = 0;
     for (int c = lid; c < D_HEAD; c += 32) {
       acc += O[row * D_HEAD + c] * dO[row * D_HEAD + c];
     }
@@ -263,12 +264,175 @@ __global__ void helper_di_kernel(const scalar_t *O, const scalar_t *dO,
 }
 
 // Backward
-template <const int T>
+template <const int T, const int D_H, const int BS>
 __global__ void flash_back_kernel(const scalar_t *O, const scalar_t *Q,
                                   const scalar_t *K, const scalar_t *V,
-                                  const scalar_t *dO, const scalar_t *LGE,
+                                  const scalar_t *dO, const scalar_t *LSE,
                                   const scalar_t *D, scalar_t *dQ, scalar_t *dK,
-                                  scalar_t *dV, int D_H, int B) {}
+                                  scalar_t *dV, int N) {
+
+  // BD + BD  + BD + BD + B + B^2 + B^2
+  __shared__ scalar_t Qs[BS][D_H];
+  __shared__ scalar_t Ks[BS][D_H];
+  __shared__ scalar_t Vs[BS][D_H];
+  __shared__ scalar_t dOs[BS][D_H];
+  __shared__ scalar_t LSEs[BS];
+  __shared__ scalar_t Ps[BS][BS];
+
+  // Make some things reused
+  auto Ds = LSEs;
+  auto dSs = Ps;
+
+  constexpr int dCNT = (BS * D_H + T - 1) / T;
+  constexpr scalar_t RSQRT_DH = 1.f / csqrt(D_H);
+
+  scalar_t dKacc[dCNT] = {};
+  scalar_t dVacc[dCNT] = {};
+
+  // incorporate batch offsets
+  {
+    O += (N * D_H) * blockIdx.y;
+    Q += (N * D_H) * blockIdx.y;
+    K += (N * D_H) * blockIdx.y;
+    V += (N * D_H) * blockIdx.y;
+    dO += (N * D_H) * blockIdx.y;
+    LSE += (N)*blockIdx.y;
+    D += (N)*blockIdx.y;
+    dQ += (N * D_H) * blockIdx.y;
+    dK += (N * D_H) * blockIdx.y;
+    dV += (N * D_H) * blockIdx.y;
+  }
+
+  auto bid = blockIdx.x;
+  auto tid = threadIdx.x;
+
+  // Load store helpers
+  auto ldst_2d = [&](int off, auto &shared, auto &global) {
+    for (int i = tid; i < BS * D_H; i += T) {
+      int lr = i / D_H;
+      int lc = i % D_H;
+
+      // if constexpr (transpose) {
+      // shared[lc][lr] = (off + lr < N && lc < D_H)
+      //                      ? global[(off + lr) * D_H + lc]
+      //                     : scalar_t{};
+      //} else {
+      shared[lr][lc] = (off + lr < N && lc < D_H)
+                           ? global[(off + lr) * D_H + lc]
+                           : scalar_t{};
+      // }
+    }
+  };
+
+  auto ldst_1d = [&](int off, auto &shared, auto &global) {
+    for (int i = tid; i < BS; i += T) {
+      shared[i] = (off + i < N) ? global[off + i] : scalar_t{};
+    }
+  };
+
+  int koff = bid * BS;
+  ldst_2d(koff, Ks, K);
+  ldst_2d(koff, Vs, V);
+
+  for (int qoff = 0; qoff < N; qoff += BS) {
+    ldst_2d(qoff, Qs, Q);
+    ldst_1d(qoff, LSEs, LSE);
+    __syncthreads();
+    // Pre fetch next phases's dO
+    ldst_2d(qoff, dOs, dO);
+
+    // Generate P
+    for (int i = tid; i < BS * BS; i += T) {
+      int lc = (i % BS);
+      int lr = (i / BS);
+
+      Ps[lr][lc] = 0;
+      for (int k = 0; k < D_H; k++) {
+        Ps[lr][lc] += Qs[lr][k] * Ks[lc][k];
+      }
+      Ps[lr][lc] = __expf(Ps[lr][lc] * RSQRT_DH - LSEs[lr]);
+    }
+
+    __syncthreads();
+    // Pre fetch next Phase's D
+    ldst_1d(qoff, Ds, D);
+
+    // Generate dV's shard
+    for (int i = 0; i < dCNT; i++) {
+      int id = i * T + tid;
+
+      int lc = id % D_H;
+      int lr = id / D_H;
+
+      for (int k = 0; k < BS; k++) {
+        dVacc[i] += Ps[k][lr] * dOs[k][lc];
+      }
+    }
+
+    __syncthreads();
+
+    // Generate dS
+    for (int i = tid; i < BS * BS; i += T) {
+      int lc = i % BS;
+      int lr = i / BS;
+
+      scalar_t dP = 0;
+      for (int k = 0; k < D_H; k++) {
+        dP += dOs[lr][k] * Vs[lc][k];
+      }
+      dSs[lr][lc] = dP * Ps[lr][lc] - Ps[lr][lc] * Ds[lr];
+    }
+
+    __syncthreads();
+
+    // Generate and write back a slice of dQ
+    for (int i = tid; i < BS * D_H; i += T) {
+      int lr = i / D_H;
+      int lc = i % D_H;
+
+      int gr = qoff + lr;
+      int gc = lc;
+
+      if (gr < N && gc < D_H) {
+        scalar_t dQe = 0;
+        for (int k = 0; k < BS; k++) {
+          dQe += RSQRT_DH * dSs[lr][k] * Ks[k][lc];
+        }
+        // Attomically add cuz other blocks also doing this same shard
+        atomicAdd(&dQ[gr * D_H + gc], dQe);
+      }
+    }
+
+    // Generate dK's shard
+    for (int i = 0; i < dCNT; i++) {
+      int id = i * T + tid;
+
+      int lc = id % D_H;
+      int lr = id / D_H;
+
+      for (int k = 0; k < BS; k++) {
+        dKacc[i] += RSQRT_DH * dSs[k][lr] * Qs[k][lc];
+      }
+    }
+    __syncthreads();
+  }
+
+  // All are done
+  for (int i = 0; i < dCNT; i++) {
+    int id = i * T + tid;
+
+    int lc = id % D_H;
+    int lr = id / D_H;
+
+    int gc = lc;
+    int gr = lr + koff;
+
+    if (gr < N && gc < D_H) {
+      dK[gr * D_H + gc] = dKacc[i];
+      dV[gr * D_H + gc] = dVacc[i];
+    }
+  }
+}
 
 /*
 
@@ -283,7 +447,7 @@ dK = sqrt(dk) dS^Q
 
  */
 Tensor flash_back(const Tensor &O, const Tensor &Q, const Tensor &K,
-                  const Tensor &V, const Tensor &dO, const Tensor &LGE,
+                  const Tensor &V, const Tensor &dO, const Tensor &LSE,
                   Tensor &dQ, Tensor &dK, Tensor &dV) {
   const auto &shape = O.shape();
   const auto &sz = shape.size();
@@ -292,16 +456,61 @@ Tensor flash_back(const Tensor &O, const Tensor &Q, const Tensor &K,
   int64_t N = shape[sz - 2];
   int64_t B = shape[sz - 3];
 
-  constexpr int T = 256;
-  constexpr int BS = 32;
-  dim3 blk(T);
-  dim3 grid((N + BS - 1) / BS, B);
+  Tensor D = Tensor::zeros_like(LSE);
+  // Blk for the launch so launch param names can be reused
+  {
+    constexpr int T = 256;
+    constexpr int BS = 32;
 
-  Tensor D = Tensor::zeros_like(LGE);
-  helper_di_kernel<T, BS><<<grid, blk>>>(O.data_ptr<scalar_t>(),
-                                         dO.data_ptr<scalar_t>(),
-                                         D.data_ptr<scalar_t>(), D_H, N);
-  CUDA_CHECK(cudaGetLastError());
+    dim3 blk(T);
+    dim3 grid((N + BS - 1) / BS, B);
+
+    helper_di_kernel<T, BS><<<grid, blk>>>(O.data_ptr<scalar_t>(),
+                                           dO.data_ptr<scalar_t>(),
+                                           D.data_ptr<scalar_t>(), D_H, N);
+    CUDA_CHECK(cudaGetLastError());
+  }
+
+  if (D_H == 32) {
+    constexpr int T = 256;
+    constexpr int BS = 10;
+    constexpr int CD_H = 32;
+
+    dim3 blk(T);
+    dim3 grid((N + BS - 1) / BS, B);
+    flash_back_kernel<T, CD_H, BS>
+        <<<grid, blk>>>(O.data_ptr<scalar_t>(), Q.data_ptr<scalar_t>(),
+                        K.data_ptr<scalar_t>(), V.data_ptr<scalar_t>(),
+                        dO.data_ptr<scalar_t>(), LSE.data_ptr<scalar_t>(),
+                        D.data_ptr<scalar_t>(), dQ.data_ptr<scalar_t>(),
+                        dK.data_ptr<scalar_t>(), dV.data_ptr<scalar_t>(), N);
+  } else if (D_H == 64) {
+    constexpr int T = 256;
+    constexpr int BS = 10;
+    constexpr int CD_H = 32;
+
+    dim3 blk(T);
+    dim3 grid((N + BS - 1) / BS, B);
+    flash_back_kernel<T, CD_H, BS>
+        <<<grid, blk>>>(O.data_ptr<scalar_t>(), Q.data_ptr<scalar_t>(),
+                        K.data_ptr<scalar_t>(), V.data_ptr<scalar_t>(),
+                        dO.data_ptr<scalar_t>(), LSE.data_ptr<scalar_t>(),
+                        D.data_ptr<scalar_t>(), dQ.data_ptr<scalar_t>(),
+                        dK.data_ptr<scalar_t>(), dV.data_ptr<scalar_t>(), N);
+  } else if (D_H == 128) {
+    constexpr int T = 256;
+    constexpr int BS = 10;
+    constexpr int CD_H = 32;
+
+    dim3 blk(T);
+    dim3 grid((N + BS - 1) / BS, B);
+    flash_back_kernel<T, CD_H, BS>
+        <<<grid, blk>>>(O.data_ptr<scalar_t>(), Q.data_ptr<scalar_t>(),
+                        K.data_ptr<scalar_t>(), V.data_ptr<scalar_t>(),
+                        dO.data_ptr<scalar_t>(), LSE.data_ptr<scalar_t>(),
+                        D.data_ptr<scalar_t>(), dQ.data_ptr<scalar_t>(),
+                        dK.data_ptr<scalar_t>(), dV.data_ptr<scalar_t>(), N);
+  }
 }
 
 } // namespace cuda
