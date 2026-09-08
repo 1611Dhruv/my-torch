@@ -186,23 +186,30 @@ ag::VarPtr MultiHeadSelfAttention::forward(ag::VarPtr inp) {
   auto Q = ag::matmul(inp, _Wq);
   auto K = ag::matmul(inp, _Wk);
   auto V = ag::matmul(inp, _Wv);
+  // NOTE: Kv Cache goes here
 
   // Make Q, K , V into (n_head, T, d_head)
   auto q_h = ag::transpose(ag::reshape(Q, {B, T, _n_heads, d_head}), 1, 2);
   auto k_h = ag::transpose(ag::reshape(K, {B, T, _n_heads, d_head}), 1, 2);
   auto v_h = ag::transpose(ag::reshape(V, {B, T, _n_heads, d_head}), 1, 2);
 
-  auto qkt = ag::scale(ag::matmul(q_h, ag::transpose(k_h, -1, -2)),
-                       1.0 / std::sqrt(d_head));
-  // Mask qkt
-  auto msk =
-      ag::Variable::leaf(_causal_mask.slice(0, 0, T).slice(1, 0, T), false);
-  auto sft = ag::softmax(ag::add(qkt, msk));
-  // {B, n_h, T, d_h}
-  auto head_out = ag::matmul(sft, v_h);
-  auto merge_back = ag::reshape(ag::transpose(head_out, 1, 2), inp_shape);
-  auto res = ag::matmul(merge_back, _Wo);
-  return res;
+  // Flash is usable only on cuda with float32
+  if (inp->data().device() == torch::Device::CUDA &&
+      inp->data().dtype() == torch::DType::Float32) {
+    return ag::flash_atten(q_h, k_h, v_h, true);
+  } else {
+    auto qkt = ag::scale(ag::matmul(q_h, ag::transpose(k_h, -1, -2)),
+                         1.0 / std::sqrt(d_head));
+    // Mask qkt
+    auto msk =
+        ag::Variable::leaf(_causal_mask.slice(0, 0, T).slice(1, 0, T), false);
+    auto sft = ag::softmax(ag::add(qkt, msk));
+    // {B, n_h, T, d_h}
+    auto head_out = ag::matmul(sft, v_h);
+    auto merge_back = ag::reshape(ag::transpose(head_out, 1, 2), inp_shape);
+    auto res = ag::matmul(merge_back, _Wo);
+    return res;
+  }
 }
 
 // FFN
@@ -241,8 +248,8 @@ Transformer::Transformer(int64_t vocab_size, int64_t d_model, int64_t d_ff,
                          Device dev) {
   //: _unembed(d_model, vocab_size, dtype, dev) {
   for (int i = 0; i < n_blocks; i++) {
-    _blocks.emplace_back(
-        std::make_shared<TransformerBlock>(d_model, d_ff, 8, 1024, dtype, dev));
+    _blocks.emplace_back(std::make_shared<TransformerBlock>(
+        d_model, d_ff, n_blocks, max_context, dtype, dev));
     register_module("block " + std::to_string(i), _blocks.back().get());
   }
   // register_module("unembed", &_unembed);
@@ -250,7 +257,7 @@ Transformer::Transformer(int64_t vocab_size, int64_t d_model, int64_t d_ff,
 ag::VarPtr Transformer::forward(ag::VarPtr inp) {
   auto res = inp;
   for (auto &m : _blocks) {
-    res = m->forward(inp);
+    res = m->forward(res);
   }
   return res;
 };

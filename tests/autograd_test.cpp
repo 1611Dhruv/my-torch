@@ -55,7 +55,8 @@ static void expect_close(std::vector<float> &&t1, std::vector<float> &&t2) {
 }
 
 // --- Numerical Analyis ------------------------------------------
-constexpr double eps = 6e-6;
+constexpr double EPS_HIGH = 6e-6;
+constexpr double EPS_LOW = 4.9e-3;
 
 // Read/write one element by flat index, on either device.
 //
@@ -63,21 +64,28 @@ constexpr double eps = 6e-6;
 // elements, so a per-element cudaMemcpy is the right trade: it keeps one code
 // path for both backends, and this is a correctness tool, not a hot loop.
 static double elem_get(const torch::Tensor &t, int64_t j) {
-  const double *p = t.data_ptr<double>();
-  if (t.device() == torch::Device::CPU)
-    return p[j];
-  double v = 0.0;
-  CUDA_CHECK(cudaMemcpy(&v, p + j, sizeof(double), cudaMemcpyDeviceToHost));
-  return v;
+  double out = 0;
+  DISPATCH_OP(t.dtype(), [&]() {
+    const scalar_t *p = t.data_ptr<scalar_t>();
+    if (t.device() == torch::Device::CPU) {
+      out = static_cast<double>(p[j]);
+    }
+    double v = 0.0;
+    CUDA_CHECK(cudaMemcpy(&v, p + j, sizeof(scalar_t), cudaMemcpyDeviceToHost));
+    out = static_cast<double>(v);
+  });
+  return out;
 }
 
 static void elem_set(torch::Tensor &t, int64_t j, double v) {
-  double *p = t.data_ptr<double>();
-  if (t.device() == torch::Device::CPU) {
-    p[j] = v;
-    return;
-  }
-  CUDA_CHECK(cudaMemcpy(p + j, &v, sizeof(double), cudaMemcpyHostToDevice));
+  DISPATCH_OP(t.dtype(), [&]() {
+    scalar_t *p = t.data_ptr<scalar_t>();
+    if (t.device() == torch::Device::CPU) {
+      p[j] = static_cast<scalar_t>(v);
+      return;
+    }
+    CUDA_CHECK(cudaMemcpy(p + j, &v, sizeof(scalar_t), cudaMemcpyHostToDevice));
+  });
 }
 
 // A float64 input tensor on `dev`, which is what gradcheck needs: the step
@@ -88,8 +96,10 @@ static torch::Tensor hp(std::vector<int64_t> shape, torch::Device dev) {
 
 template <typename Op>
 void gradient_check(std::string name, Op fn, std::vector<torch::Tensor> inputs,
-                    double atol = 1e-8, double rtol = 1e-5) {
+                    double atol = 1e-8, double rtol = 1e-5,
+                    bool use_low = false) {
 
+  double eps = (use_low) ? EPS_LOW : EPS_HIGH;
   // Transform inputs into cool dudes once
   std::vector<torch::autograd::VarPtr> vars(inputs.size());
   std::ranges::transform(inputs, vars.begin(), [](auto t) {
@@ -100,6 +110,8 @@ void gradient_check(std::string name, Op fn, std::vector<torch::Tensor> inputs,
   auto out = fn(vars);
   auto R = torch::autograd::Variable::leaf(
       torch::Tensor::randn_like_hp(out->data()), false);
+  if (use_low)
+    R->data() = R->data().to(torch::DType::Float32, out->data().device());
 
   // Manually compute this analytical loss
   auto L = torch::autograd::sum(torch::autograd::mult(out, R), {});
@@ -348,6 +360,38 @@ TEST(AutogradNumerical, Softmax) {
                    return torch::autograd::softmax(inps[0], 1);
                  },
                  {a});
+}
+
+TEST(AutogradNumerical, FlashAttenCausal) {
+  auto q = torch::Tensor::randn({2, 64, 32})
+               .to(torch::DType::Float32, torch::Device::CUDA);
+  auto k = torch::Tensor::randn({2, 64, 32})
+               .to(torch::DType::Float32, torch::Device::CUDA);
+  auto v = torch::Tensor::randn({2, 64, 32})
+               .to(torch::DType::Float32, torch::Device::CUDA);
+
+  gradient_check(
+      "flash-causal",
+      [&](std::vector<torch::autograd::VarPtr> inps) {
+        return torch::autograd::flash_atten(inps[0], inps[1], inps[2], true);
+      },
+      {q, k, v}, 1e-8, 1e-2, true);
+}
+
+TEST(AutogradNumerical, FlashAtten) {
+  auto q = torch::Tensor::randn({2, 64, 32})
+               .to(torch::DType::Float32, torch::Device::CUDA);
+  auto k = torch::Tensor::randn({2, 64, 32})
+               .to(torch::DType::Float32, torch::Device::CUDA);
+  auto v = torch::Tensor::randn({2, 64, 32})
+               .to(torch::DType::Float32, torch::Device::CUDA);
+
+  gradient_check(
+      "flash",
+      [&](std::vector<torch::autograd::VarPtr> inps) {
+        return torch::autograd::flash_atten(inps[0], inps[1], inps[2], false);
+      },
+      {q, k, v}, 1e-8, 1e-2, true);
 }
 
 // --- forward values (runnable now) ------------------------------------------

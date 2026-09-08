@@ -284,7 +284,7 @@ __global__ void flash_back_kernel(const scalar_t *O, const scalar_t *Q,
   auto dSs = Ps;
 
   constexpr int dCNT = (BS * D_H + T - 1) / T;
-  constexpr scalar_t RSQRT_DH = 1.f / csqrt(D_H);
+  const scalar_t RSQRT_DH = __frsqrt_rn(D_H);
 
   scalar_t dKacc[dCNT] = {};
   scalar_t dVacc[dCNT] = {};
