@@ -351,7 +351,7 @@ std::tuple<Tensor, Tensor, Tensor> flash_back(const Tensor &O, const Tensor &Q,
   };
 
   if (supported(Q) && supported(K) && supported(V) && supported(LSE) &&
-      supported(dO)) {
+      supported(dO) && supported(O)) {
     // Now we perform normalization business
 
     // First contigify them
@@ -402,7 +402,7 @@ std::tuple<Tensor, Tensor, Tensor> flash_back(const Tensor &O, const Tensor &Q,
     return {dQ.reshape(shape), dK.reshape(shape), dV.reshape(shape)};
   } else {
     throw std::invalid_argument(
-        "One of Q, K, V, LSE, dO is not on CUDA and is not "
+        "One of O, Q, K, V, LSE, dO is not on CUDA and is not "
         "Float32, please cast .to()");
   }
 }
