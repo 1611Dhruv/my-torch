@@ -239,17 +239,19 @@ TransformerBlock::TransformerBlock(int64_t d_model, int64_t d_ff,
 }
 
 ag::VarPtr TransformerBlock::forward(ag::VarPtr inp) {
-  return _ff(_n2(_atten(_n1(inp))));
+  auto atten_rich = ag::add(inp, _atten(_n1(inp)));
+  auto ffn_rich = ag::add(atten_rich, _ff(_n2(atten_rich)));
+  return ffn_rich;
 }
 
 // Transformer
 Transformer::Transformer(int64_t vocab_size, int64_t d_model, int64_t d_ff,
-                         int64_t n_blocks, int64_t max_context, DType dtype,
-                         Device dev) {
+                         int64_t n_blocks, int64_t n_heads, int64_t max_context,
+                         DType dtype, Device dev) {
   //: _unembed(d_model, vocab_size, dtype, dev) {
   for (int i = 0; i < n_blocks; i++) {
     _blocks.emplace_back(std::make_shared<TransformerBlock>(
-        d_model, d_ff, n_blocks, max_context, dtype, dev));
+        d_model, d_ff, n_heads, max_context, dtype, dev));
     register_module("block " + std::to_string(i), _blocks.back().get());
   }
   // register_module("unembed", &_unembed);

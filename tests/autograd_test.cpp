@@ -69,8 +69,9 @@ static double elem_get(const torch::Tensor &t, int64_t j) {
     const scalar_t *p = t.data_ptr<scalar_t>();
     if (t.device() == torch::Device::CPU) {
       out = static_cast<double>(p[j]);
+      return;
     }
-    double v = 0.0;
+    scalar_t v = scalar_t{};
     CUDA_CHECK(cudaMemcpy(&v, p + j, sizeof(scalar_t), cudaMemcpyDeviceToHost));
     out = static_cast<double>(v);
   });
@@ -84,7 +85,9 @@ static void elem_set(torch::Tensor &t, int64_t j, double v) {
       p[j] = static_cast<scalar_t>(v);
       return;
     }
-    CUDA_CHECK(cudaMemcpy(p + j, &v, sizeof(scalar_t), cudaMemcpyHostToDevice));
+    scalar_t tmp = static_cast<scalar_t>(v);
+    CUDA_CHECK(
+        cudaMemcpy(p + j, &tmp, sizeof(scalar_t), cudaMemcpyHostToDevice));
   });
 }
 
