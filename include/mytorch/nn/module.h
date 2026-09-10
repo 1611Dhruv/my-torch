@@ -130,6 +130,7 @@ public:
   Transformer(int64_t vocab_size, int64_t d_model, int64_t d_ff,
               int64_t n_blocks, int64_t n_heads, int64_t max_context,
               DType dtype = DType::Float32, Device dev = Device::CPU);
+  void set_pe(std::string type);
   ag::VarPtr forward(ag::VarPtr inp) override;
 
 private:

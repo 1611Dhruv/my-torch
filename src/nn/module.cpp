@@ -256,6 +256,18 @@ Transformer::Transformer(int64_t vocab_size, int64_t d_model, int64_t d_ff,
   }
   // register_module("unembed", &_unembed);
 }
+
+void Transformer::set_pe(std::string type) {
+  if (type == "rope") {
+    throw std::invalid_argument("rope aint roping yet");
+  }
+  if (type == "sin") {
+    throw std::invalid_argument("rope aint roping yet");
+  }
+  if (type == "nope") {
+    _pe = nullptr;
+  }
+}
 ag::VarPtr Transformer::forward(ag::VarPtr inp) {
   auto res = inp;
   for (auto &m : _blocks) {

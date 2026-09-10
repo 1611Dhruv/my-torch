@@ -378,7 +378,7 @@ TEST(AutogradNumerical, FlashAttenCausal) {
       [&](std::vector<torch::autograd::VarPtr> inps) {
         return torch::autograd::flash_atten(inps[0], inps[1], inps[2], true);
       },
-      {q, k, v}, 1e-8, 1e-2, true);
+      {q, k, v}, 1e-8, 1e-3, true);
 }
 
 TEST(AutogradNumerical, FlashAtten) {
@@ -394,7 +394,7 @@ TEST(AutogradNumerical, FlashAtten) {
       [&](std::vector<torch::autograd::VarPtr> inps) {
         return torch::autograd::flash_atten(inps[0], inps[1], inps[2], false);
       },
-      {q, k, v}, 1e-8, 1e-2, true);
+      {q, k, v}, 1e-8, 1e-3, true);
 }
 
 // --- forward values (runnable now) ------------------------------------------
