@@ -47,3 +47,7 @@ gtest_discover_tests(transformer_test)
 add_executable(flash_test flash_test.cpp)
 target_link_libraries(flash_test PRIVATE mytorch GTest::gtest_main)
 gtest_discover_tests(flash_test)
+
+add_executable(index_select_test index_select_test.cpp)
+target_link_libraries(index_select_test PRIVATE mytorch GTest::gtest_main)
+gtest_discover_tests(index_select_test)

@@ -287,7 +287,14 @@ Tensor index_select(const Tensor &a, const Tensor &idx, Tensor &out) {
   auto shape = a.shape();
   auto strides = a.strides();
   for (int64_t i = 0; i < n; i++) {
+    int idx = indexes[i];
+    auto out_row = out[i];
+    DISPATCH_OP(a.dtype(), [&] {
+      unary_elementwise<scalar_t>(a[idx], out_row,
+                                  [](scalar_t x) { return x; });
+    });
   }
+  return out;
 }
 
 } // namespace cpu

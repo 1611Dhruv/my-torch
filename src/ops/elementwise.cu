@@ -334,5 +334,53 @@ Tensor cast(const Tensor &a, Tensor &out) {
   return out;
 }
 
+template <typename scalar_t, const int T, const int WARP_SZ = 32>
+__global__ void index_select_kernel(const int *idx, const scalar_t *src,
+                                    scalar_t *dest, int N, int R, int M) {
+  __shared__ int idx_s[T];
+  int tid = threadIdx.x;
+  int boff = blockIdx.x * T;
+  int i = tid + boff;
+
+  if (i < N) {
+    idx_s[tid] = idx[i];
+    assert(idx_s[tid] >= 0 && idx_s[tid] < M);
+  }
+  __syncthreads();
+
+  int wid = tid / WARP_SZ;
+  int lid = tid % WARP_SZ;
+
+  constexpr int NUM_WARPS = (T + WARP_SZ - 1) / WARP_SZ;
+  for (int woff = wid; woff < T; woff += NUM_WARPS) {
+    if (woff + boff < N) {
+      for (int j = lid; j < R; j += WARP_SZ) {
+        dest[(woff + boff) * R + j] = src[idx_s[woff] * R + j];
+      }
+    }
+  }
+}
+
+Tensor index_select(const Tensor &a, const Tensor &idx, Tensor &out) {
+  int N = idx.numel();
+  auto a_contig = a.contiguous();
+  constexpr int T = 256;
+  dim3 grid((N + T - 1) / T);
+
+  int R = a_contig.numel() / a_contig.shape()[0];
+  int M = a_contig.shape()[0];
+
+  DISPATCH_OP(a.dtype(), [&] {
+    if (idx.dtype() != DType::Int32) {
+      throw std::invalid_argument("Called index_select where idx is not int32");
+    }
+    index_select_kernel<scalar_t, T>
+        <<<grid, T>>>(idx.data_ptr<int>(), a_contig.data_ptr<scalar_t>(),
+                      out.data_ptr<scalar_t>(), N, R, M);
+  });
+  CUDA_CHECK(cudaGetLastError());
+  return out;
+}
+
 } // namespace cuda
 } // namespace torch
