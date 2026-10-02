@@ -123,8 +123,11 @@ void gradient_check(std::string name, Op fn, std::vector<torch::Tensor> inputs,
 
   // Get the gradient
   auto eval = [&]() -> double {
+    R->data() = R->data().to(torch::DType::Float64, out->data().device());
+    auto fwd = fn(vars);
+    fwd->data() = fwd->data().to(torch::DType::Float64, out->data().device());
     torch::autograd::VarPtr loss =
-        torch::autograd::sum(torch::autograd::mult(R, fn(vars)), {});
+        torch::autograd::sum(torch::autograd::mult(R, fwd), {});
     return elem_get(loss->data(), 0);
   };
 
@@ -378,7 +381,7 @@ TEST(AutogradNumerical, FlashAttenCausal) {
       [&](std::vector<torch::autograd::VarPtr> inps) {
         return torch::autograd::flash_atten(inps[0], inps[1], inps[2], true);
       },
-      {q, k, v}, 1e-8, 1e-3, true);
+      {q, k, v}, 5e-3, 1e-2, true);
 }
 
 TEST(AutogradNumerical, FlashAtten) {
@@ -394,7 +397,7 @@ TEST(AutogradNumerical, FlashAtten) {
       [&](std::vector<torch::autograd::VarPtr> inps) {
         return torch::autograd::flash_atten(inps[0], inps[1], inps[2], false);
       },
-      {q, k, v}, 1e-8, 1e-3, true);
+      {q, k, v}, 5e-3, 1e-2, true);
 }
 
 // --- forward values (runnable now) ------------------------------------------

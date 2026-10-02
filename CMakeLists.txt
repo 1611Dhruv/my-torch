@@ -5,10 +5,10 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON) # let clangd/IDEs find include paths
 set(CMAKE_CUDA_STANDARD 20)
-# Pin to the dev GPU's arch (RTX 5050 = Blackwell sm_120). `native` mis-detects to
-# sm_75 here, which forces a PTX-JIT fallback that the driver (CUDA 13.2) is too old
-# to handle vs nvcc 13.3 ("unsupported toolchain"). Explicit sm_120 emits real SASS.
-set(CMAKE_CUDA_ARCHITECTURES 120)
+# Default to the dev GPU (RTX 5050/5090 = Blackwell sm_120); override per machine,
+# e.g. -DMYTORCH_CUDA_ARCH=89 for an L40S.
+set(MYTORCH_CUDA_ARCH 120 CACHE STRING "CUDA arch to build for")
+set(CMAKE_CUDA_ARCHITECTURES ${MYTORCH_CUDA_ARCH})
 # Emit -I include flags inline in compile_commands.json instead of hiding them in
 # an nvcc response file (--options-file), which clangd can't read -> it loses the
 # project include path and red-lines every .cu. Keeps the editor happy.
