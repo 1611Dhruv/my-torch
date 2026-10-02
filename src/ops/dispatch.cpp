@@ -407,4 +407,39 @@ std::tuple<Tensor, Tensor, Tensor> flash_back(const Tensor &O, const Tensor &Q,
   }
 }
 
+Tensor index_select(const Tensor &a, Tensor idx) {
+  // flatten the index
+  if (idx.dtype() != DType::Int32) {
+    throw std::invalid_argument("index_select DType for indexes must be Int32");
+  }
+
+  if (a.device() != idx.device()) {
+    idx = idx.to(DType::Int32, a.device());
+  }
+
+  auto shape = a.shape();
+  if (shape.empty()) {
+    throw std::invalid_argument(
+        "index_select: Tensor a must have atleast one dimension");
+  }
+
+  Tensor flattened = idx.reshape({idx.numel()});
+  // Select along dim 0 always for now :P
+  shape[0] = flattened.numel(); // This becomes the shape of our tensor for now
+
+  Tensor out = Tensor::zeros(shape, a.dtype(), a.device());
+  if (a.device() == CUDA) {
+    torch::cuda::index_select(a, flattened, out);
+  } else {
+    torch::cpu::index_select(a, flattened, out);
+  }
+
+  auto new_shape = idx.shape();
+  for (int i = 1; i < shape.size(); i++) {
+    new_shape.push_back(shape[i]);
+  }
+  out = out.reshape(new_shape);
+  return out;
+}
+
 } // namespace torch

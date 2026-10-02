@@ -281,5 +281,14 @@ Tensor cast(const Tensor &a, Tensor &out) {
   return out;
 }
 
+Tensor index_select(const Tensor &a, const Tensor &idx, Tensor &out) {
+  int64_t n = idx.numel();
+  auto indexes = idx.data_ptr<int>();
+  auto shape = a.shape();
+  auto strides = a.strides();
+  for (int64_t i = 0; i < n; i++) {
+  }
+}
+
 } // namespace cpu
 } // namespace torch

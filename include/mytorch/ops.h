@@ -37,6 +37,9 @@ Tensor sum(const Tensor &a, std::vector<int64_t> dims, bool keep_dim = true);
 Tensor max(const Tensor &a, std::vector<int64_t> dims, bool keep_dim = true);
 
 Tensor cast(const Tensor &a, DType dtype);
+
+// Index select (dim0 for now)
+Tensor index_select(const Tensor &a, Tensor idx);
 /*
  NOTE: Future
 
@@ -79,6 +82,8 @@ Tensor cast(const Tensor &a, Tensor &out);
 
 Tensor mean(const Tensor &a, Tensor &out, std::vector<int64_t> dims);
 */
+
+Tensor index_select(const Tensor &a, const Tensor &idx, Tensor &out);
 
 } // namespace cpu
 
@@ -129,6 +134,8 @@ Tensor cast(const Tensor &a, Tensor &out);
 
 Tensor mean(const Tensor &a, Tensor &out, std::vector<int64_t> dims);
 */
+
+Tensor index_select(const Tensor &a, const Tensor &idx, Tensor &out);
 
 } // namespace cuda
 
