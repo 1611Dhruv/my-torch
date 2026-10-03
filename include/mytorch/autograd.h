@@ -89,6 +89,8 @@ VarPtr div(VarPtr a, VarPtr b);
 VarPtr relu(VarPtr a);
 VarPtr flash_atten(VarPtr Q, VarPtr K, VarPtr V, bool causal);
 
+VarPtr index_select(VarPtr A, VarPtr I);
+
 } // namespace autograd
 } // namespace torch
 

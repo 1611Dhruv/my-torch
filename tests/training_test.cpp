@@ -29,15 +29,16 @@ using torch::DType;
 using torch::MSE;
 using torch::SGD;
 using torch::Tensor;
-using torch::autograd::VarPtr;
 using torch::autograd::Variable;
+using torch::autograd::VarPtr;
 namespace nn = torch::nn;
 
 // --- helpers ---------------------------------------------------------------
 
 // A {rows, cols} Float32 leaf from row-major values. requires_grad=false: these
 // are data, not parameters, so nothing should be learning them.
-static VarPtr input(int64_t rows, int64_t cols, const std::vector<float> &vals) {
+static VarPtr input(int64_t rows, int64_t cols,
+                    const std::vector<float> &vals) {
   Tensor t({rows, cols}, DType::Float32, CPU);
   EXPECT_EQ(static_cast<int64_t>(vals.size()), t.numel());
   float *p = t.data_ptr<float>();
@@ -57,10 +58,13 @@ static VarPtr param_named(const nn::Module &m, const std::string &suffix) {
   return nullptr;
 }
 
-static float scalar_of(const VarPtr &v) { return v->data().data_ptr<float>()[0]; }
+static float scalar_of(const VarPtr &v) {
+  return v->data().data_ptr<float>()[0];
+}
 
 // One training step. Returns the loss *before* the update.
-static float step(nn::Module &model, SGD &opt, const VarPtr &x, const VarPtr &y) {
+static float step(nn::Module &model, SGD &opt, const VarPtr &x,
+                  const VarPtr &y) {
   opt.zero_grad();
   MSE loss(model(x), y);
   float before = loss.loss();
@@ -159,7 +163,8 @@ TEST(TrainingWiringTest, OneStepReducesTheLoss) {
 
   float first = step(lin, opt, x, y);
   float second = MSE(lin(x), y).loss();
-  EXPECT_LT(second, first) << "loss rose after one step (sign error in update?)";
+  EXPECT_LT(second, first)
+      << "loss rose after one step (sign error in update?)";
 }
 
 // ===========================================================================
@@ -259,7 +264,8 @@ static constexpr int64_t NB = 2, NT = 3, NH = 8;
 TEST(NormTest, ParametersAreRegistered) {
   // register_param is what puts gamma/beta in params(). Skip it and the module
   // still runs -- it just never learns, with no error anywhere.
-  EXPECT_EQ(nn::RMSNorm(NH).params().size(), 1u) << "RMSNorm should expose gain";
+  EXPECT_EQ(nn::RMSNorm(NH).params().size(), 1u)
+      << "RMSNorm should expose gain";
   EXPECT_EQ(nn::LayerNorm(NH).params().size(), 2u)
       << "LayerNorm should expose gain and bias";
 }
@@ -300,7 +306,8 @@ TEST(NormTest, ConstantRowStaysFiniteBecauseOfEpsilon) {
   const float *pa = a->data().data_ptr<float>();
   const float *pb = b->data().data_ptr<float>();
   for (int64_t i = 0; i < a->data().numel(); ++i) {
-    EXPECT_TRUE(std::isfinite(pa[i])) << "LayerNorm produced non-finite at " << i;
+    EXPECT_TRUE(std::isfinite(pa[i]))
+        << "LayerNorm produced non-finite at " << i;
     EXPECT_TRUE(std::isfinite(pb[i])) << "RMSNorm produced non-finite at " << i;
   }
 }
@@ -385,7 +392,7 @@ TEST(NormTest, NormParametersReceiveGradientsAndTrain) {
 }
 
 // ===========================================================================
-// MultiHeadSelfAttention
+// MultiHeadAttention
 //
 // Attention is the easiest layer in the stack to get "plausible but wrong":
 // every bug below still produces a correctly-shaped tensor of finite numbers,
@@ -420,17 +427,17 @@ static std::vector<float> varied(int64_t n, uint32_t salt = 0) {
 
 TEST(MhaTest, ConstructsAndExposesFourParameters) {
   torch::manual_seed(0);
-  nn::MultiHeadSelfAttention mha(8, 2, 4);
+  nn::MultiHeadAttention mha(8, 2, 4);
   EXPECT_EQ(mha.params().size(), 4u) << "expected Wq, Wk, Wv, Wo";
 }
 
 TEST(MhaTest, RejectsHeadCountThatDoesNotDivideModelDim) {
-  EXPECT_THROW(nn::MultiHeadSelfAttention(10, 4, 4), std::invalid_argument);
+  EXPECT_THROW(nn::MultiHeadAttention(10, 4, 4), std::invalid_argument);
 }
 
 TEST(MhaTest, RejectsContextLongerThanConfigured) {
   torch::manual_seed(0);
-  nn::MultiHeadSelfAttention mha(8, 2, /*max_context=*/4);
+  nn::MultiHeadAttention mha(8, 2, /*max_context=*/4);
   auto x = seq_input(1, 6, 8, varied(48));
   EXPECT_ANY_THROW(mha(x));
 }
@@ -441,7 +448,7 @@ TEST(MhaTest, PreservesInputShape) {
   // back. If the output projection is applied to the wrong operand this fails
   // (or throws) rather than silently producing the wrong rank.
   const int64_t B = 2, T = 4, D = 8;
-  nn::MultiHeadSelfAttention mha(D, 2, T);
+  nn::MultiHeadAttention mha(D, 2, T);
   auto x = seq_input(B, T, D, varied(B * T * D));
   auto y = mha(x);
   EXPECT_EQ(y->data().shape(), std::vector<int64_t>({B, T, D}));
@@ -454,7 +461,7 @@ TEST(MhaTest, IsCausal) {
   // 0 attends only to the future, so this fails immediately.
   const int64_t B = 1, T = 5, D = 8;
   torch::manual_seed(0);
-  nn::MultiHeadSelfAttention mha(D, 2, T);
+  nn::MultiHeadAttention mha(D, 2, T);
 
   auto base = varied(B * T * D);
   auto y0 = mha(seq_input(B, T, D, base));
@@ -481,7 +488,7 @@ TEST(MhaTest, LaterPositionsDoDependOnEarlierOnes) {
   // making all outputs constant.
   const int64_t B = 1, T = 5, D = 8;
   torch::manual_seed(0);
-  nn::MultiHeadSelfAttention mha(D, 2, T);
+  nn::MultiHeadAttention mha(D, 2, T);
 
   auto base = varied(B * T * D);
   auto y0 = mha(seq_input(B, T, D, base));
@@ -497,7 +504,8 @@ TEST(MhaTest, LaterPositionsDoDependOnEarlierOnes) {
   bool changed = false;
   for (int64_t k = 0; k < D; ++k)
     changed |= (out0[(T - 1) * D + k] != out1[(T - 1) * D + k]);
-  EXPECT_TRUE(changed) << "the last position ignores the first -- is everything masked?";
+  EXPECT_TRUE(changed)
+      << "the last position ignores the first -- is everything masked?";
 }
 
 TEST(MhaTest, ProducesFiniteOutputs) {
@@ -505,7 +513,7 @@ TEST(MhaTest, ProducesFiniteOutputs) {
   // -inf in the mask, or a fully-masked row, gives NaN -- which passes every
   // tolerance comparison in this file silently.
   const int64_t B = 2, T = 4, D = 8;
-  nn::MultiHeadSelfAttention mha(D, 2, T);
+  nn::MultiHeadAttention mha(D, 2, T);
   auto y = mha(seq_input(B, T, D, varied(B * T * D)));
   const float *p = y->data().data_ptr<float>();
   for (int64_t i = 0; i < y->data().numel(); ++i)
@@ -515,7 +523,7 @@ TEST(MhaTest, ProducesFiniteOutputs) {
 TEST(MhaTest, EveryParameterReceivesAGradient) {
   torch::manual_seed(0);
   const int64_t B = 2, T = 4, D = 8;
-  nn::MultiHeadSelfAttention mha(D, 2, T);
+  nn::MultiHeadAttention mha(D, 2, T);
   auto x = seq_input(B, T, D, varied(B * T * D));
   auto y = seq_input(B, T, D, varied(B * T * D, 1));
 
@@ -527,7 +535,7 @@ TEST(MhaTest, EveryParameterReceivesAGradient) {
 TEST(MhaTest, TrainsOnAToySequence) {
   const int64_t B = 2, T = 4, D = 8;
   torch::manual_seed(0);
-  nn::MultiHeadSelfAttention mha(D, 2, T);
+  nn::MultiHeadAttention mha(D, 2, T);
   auto x = seq_input(B, T, D, varied(B * T * D));
   auto y = seq_input(B, T, D, varied(B * T * D, 1));
   SGD opt(mha.params(), 0.01f);
@@ -540,4 +548,244 @@ TEST(MhaTest, TrainsOnAToySequence) {
     last = l;
   }
   EXPECT_LT(last, first) << "attention is not learning at all";
+}
+
+// ===========================================================================
+// Embedding -- a learnable lookup table over Int32 ids
+// ===========================================================================
+
+// A {B, T} Int32 leaf of token ids. Never requires grad: ids are data.
+static VarPtr ids(int64_t B, int64_t T, const std::vector<int32_t> &vals) {
+  Tensor t({B, T}, DType::Int32, CPU);
+  EXPECT_EQ(static_cast<int64_t>(vals.size()), t.numel());
+  int32_t *p = t.data_ptr<int32_t>();
+  for (size_t i = 0; i < vals.size(); ++i)
+    p[i] = vals[i];
+  return Variable::leaf(t, false);
+}
+
+static std::vector<float> to_vec(const Tensor &t) {
+  Tensor c = t.contiguous();
+  const float *p = c.data_ptr<float>();
+  return std::vector<float>(p, p + c.numel());
+}
+
+TEST(EmbeddingTest, ExposesOneParameterNamedWeight) {
+  torch::manual_seed(0);
+  nn::Embedding emb(10, 4);
+  EXPECT_EQ(emb.params().size(), 1u);
+  EXPECT_NE(param_named(emb, "weight"), nullptr);
+  EXPECT_EQ(param_named(emb, "weight")->data().shape(),
+            std::vector<int64_t>({10, 4}));
+}
+
+TEST(EmbeddingTest, OutputShapeIsIdsShapePlusModelDim) {
+  torch::manual_seed(0);
+  nn::Embedding emb(10, 4);
+  auto y = emb(ids(2, 3, {1, 5, 9, 0, 0, 7}));
+  EXPECT_EQ(y->data().shape(), std::vector<int64_t>({2, 3, 4}));
+  EXPECT_EQ(y->data().dtype(), DType::Float32);
+}
+
+TEST(EmbeddingTest, RowsMatchTheWeightTable) {
+  // Output position (b, t) must be exactly row ids[b, t] of the weight.
+  torch::manual_seed(0);
+  const int64_t V = 6, D = 3;
+  nn::Embedding emb(V, D);
+  auto W = to_vec(param_named(emb, "weight")->data());
+
+  std::vector<int32_t> toks = {5, 0, 0, 2};
+  auto y = to_vec(emb(ids(2, 2, toks))->data());
+  for (size_t i = 0; i < toks.size(); ++i)
+    for (int64_t k = 0; k < D; ++k)
+      EXPECT_FLOAT_EQ(y[i * D + k], W[toks[i] * D + k])
+          << "position " << i << " dim " << k;
+}
+
+TEST(EmbeddingTest, GradientAccumulatesOnRepeatedIds) {
+  // Use a target of (pred - 1) so dLoss/dPred is the same constant c at every
+  // element. Then weight.grad row r == c * (# times r appears in ids) * ones.
+  // So the row for an id used twice must be exactly double the row for an id
+  // used once, and rows for ids never used must be zero. This pins "sum, not
+  // average" without depending on MSE's normalisation constant.
+  torch::manual_seed(0);
+  const int64_t V = 5, D = 3;
+  nn::Embedding emb(V, D);
+
+  std::vector<int32_t> toks = {4, 0, 0, 2}; // 0 twice; 1 and 3 never
+  auto pred = emb(ids(2, 2, toks));
+  auto target_vals = to_vec(pred->data());
+  for (auto &v : target_vals)
+    v -= 1.0f;
+  auto target = seq_input(2, 2, D, target_vals);
+
+  MSE loss(pred, target);
+  loss.backward();
+
+  auto w = param_named(emb, "weight");
+  ASSERT_TRUE(w->has_grad());
+  auto g = to_vec(*w->grad());
+  ASSERT_EQ(static_cast<int64_t>(g.size()), V * D);
+
+  for (int64_t k = 0; k < D; ++k) {
+    EXPECT_FLOAT_EQ(g[1 * D + k], 0.f) << "unused id 1 got gradient";
+    EXPECT_FLOAT_EQ(g[3 * D + k], 0.f) << "unused id 3 got gradient";
+    EXPECT_NE(g[2 * D + k], 0.f) << "used id 2 got no gradient";
+    EXPECT_NEAR(g[0 * D + k], 2.f * g[2 * D + k], 1e-6f)
+        << "id 0 appears twice, its grad row must be 2x a once-used row";
+    EXPECT_NEAR(g[4 * D + k], g[2 * D + k], 1e-6f);
+  }
+}
+
+TEST(EmbeddingTest, LearnsAToyLookupTable) {
+  // 4 ids, 2 dims. Target: id i -> (i, -i). Pure table fitting; with a big
+  // enough lr the table should converge essentially exactly.
+  torch::manual_seed(0);
+  nn::Embedding emb(4, 2);
+  auto x = ids(1, 4, {0, 1, 2, 3});
+  auto y = seq_input(1, 4, 2, {0, 0, 1, -1, 2, -2, 3, -3});
+
+  SGD opt(emb.params(), 0.5f);
+  float first = step(emb, opt, x, y);
+  float last = first;
+  for (int i = 0; i < 200; ++i)
+    last = step(emb, opt, x, y);
+  EXPECT_LT(last, first * 1e-3f) << "embedding did not fit a 4-row table";
+
+  auto W = to_vec(param_named(emb, "weight")->data());
+  for (int i = 0; i < 4; ++i) {
+    EXPECT_NEAR(W[i * 2 + 0], static_cast<float>(i), 1e-2f);
+    EXPECT_NEAR(W[i * 2 + 1], -static_cast<float>(i), 1e-2f);
+  }
+}
+
+TEST(EmbeddingTest, RejectsFloatIds) {
+  torch::manual_seed(0);
+  nn::Embedding emb(4, 2);
+  EXPECT_THROW(emb(seq_input(1, 2, 1, {0.f, 1.f})), std::invalid_argument);
+}
+
+// ===========================================================================
+// MultiHeadAttention with causal=false -- the UNet needs bidirectional
+// ===========================================================================
+
+TEST(MhaTest, NonCausalEarlyPositionsSeeLaterOnes) {
+  // Mirror image of IsCausal: perturb the LAST position and require that
+  // position 0's output changes. A hardcoded causal flag anywhere in forward
+  // (CPU mask or the flash call) fails this.
+  const int64_t B = 1, T = 5, D = 8;
+  torch::manual_seed(0);
+  nn::MultiHeadAttention mha(D, 2, T, DType::Float32, CPU, /*causal=*/false);
+
+  auto base = varied(B * T * D);
+  auto out0 = to_vec(mha(seq_input(B, T, D, base))->data());
+
+  auto bumped = base;
+  for (int64_t k = 0; k < D; ++k)
+    bumped[(T - 1) * D + k] += 5.0f;
+  auto out1 = to_vec(mha(seq_input(B, T, D, bumped))->data());
+
+  bool changed = false;
+  for (int64_t k = 0; k < D; ++k)
+    changed |= (out0[k] != out1[k]);
+  EXPECT_TRUE(changed)
+      << "non-causal attention: position 0 ignored a change at the last position";
+}
+
+TEST(MhaTest, NonCausalPreservesShapeAndIsFinite) {
+  const int64_t B = 2, T = 4, D = 8;
+  torch::manual_seed(0);
+  nn::MultiHeadAttention mha(D, 2, T, DType::Float32, CPU, false);
+  auto y = mha(seq_input(B, T, D, varied(B * T * D)));
+  EXPECT_EQ(y->data().shape(), std::vector<int64_t>({B, T, D}));
+  for (float v : to_vec(y->data()))
+    EXPECT_TRUE(std::isfinite(v));
+}
+
+TEST(MhaTest, CausalDefaultStillHoldsAfterRefactor) {
+  // Guard the default: constructing without the flag must remain causal.
+  const int64_t B = 1, T = 4, D = 8;
+  torch::manual_seed(0);
+  nn::MultiHeadAttention mha(D, 2, T);
+  auto base = varied(B * T * D);
+  auto out0 = to_vec(mha(seq_input(B, T, D, base))->data());
+  auto bumped = base;
+  for (int64_t k = 0; k < D; ++k)
+    bumped[(T - 1) * D + k] += 5.0f;
+  auto out1 = to_vec(mha(seq_input(B, T, D, bumped))->data());
+  for (int64_t i = 0; i < (T - 1) * D; ++i)
+    EXPECT_FLOAT_EQ(out0[i], out1[i]);
+}
+
+// ===========================================================================
+// Transformer end to end -- ids in, logits out
+// ===========================================================================
+
+static constexpr int64_t XV = 11; // vocab
+static constexpr int64_t XD = 8;  // d_model
+static constexpr int64_t XF = 16; // d_ff
+static constexpr int64_t XL = 1;  // blocks
+static constexpr int64_t XH = 2;  // heads
+static constexpr int64_t XT = 6;  // max context
+
+TEST(TransformerSmokeTest, MapsIdsToLogits) {
+  torch::manual_seed(0);
+  nn::Transformer model(XV, XD, XF, XL, XH, XT);
+  auto logits = model(ids(2, 4, {1, 2, 3, 4, 10, 0, 0, 5}));
+  EXPECT_EQ(logits->data().shape(), std::vector<int64_t>({2, 4, XV}));
+  for (float v : to_vec(logits->data()))
+    EXPECT_TRUE(std::isfinite(v));
+}
+
+TEST(TransformerSmokeTest, EmbedAndUnembedAreRegisteredParameters) {
+  // If Transformer forgot to register_module the embedding or the unembed
+  // Linear, they'd still work in forward but SGD would never update them.
+  torch::manual_seed(0);
+  nn::Transformer model(XV, XD, XF, XL, XH, XT);
+  bool saw_embed = false, saw_unembed = false;
+  for (auto &p : model.params()) {
+    auto s = p->data().shape();
+    if (s == std::vector<int64_t>({XV, XD}))
+      saw_embed = true;
+    if (s == std::vector<int64_t>({XD, XV}))
+      saw_unembed = true;
+  }
+  EXPECT_TRUE(saw_embed) << "no (vocab, d_model) parameter: embedding not registered";
+  EXPECT_TRUE(saw_unembed) << "no (d_model, vocab) parameter: unembed not registered";
+}
+
+TEST(TransformerSmokeTest, BackwardReachesEveryParameter) {
+  torch::manual_seed(0);
+  nn::Transformer model(XV, XD, XF, XL, XH, XT);
+  auto x = ids(1, 4, {1, 2, 3, 4});
+  auto target = seq_input(1, 4, XV, varied(4 * XV));
+  MSE loss(model(x), target);
+  loss.backward();
+  for (auto &[name, p] : model.named_params())
+    EXPECT_TRUE(p->has_grad()) << "no gradient on " << name;
+}
+
+TEST(TransformerSmokeTest, WholeModelIsCausal) {
+  // Change the last token id; logits at earlier positions must not move.
+  torch::manual_seed(0);
+  nn::Transformer model(XV, XD, XF, XL, XH, XT);
+  auto l0 = to_vec(model(ids(1, 4, {1, 2, 3, 4}))->data());
+  auto l1 = to_vec(model(ids(1, 4, {1, 2, 3, 9}))->data());
+  for (int64_t i = 0; i < 3 * XV; ++i)
+    EXPECT_FLOAT_EQ(l0[i], l1[i]) << "earlier logit moved when last id changed";
+  bool last_changed = false;
+  for (int64_t i = 3 * XV; i < 4 * XV; ++i)
+    last_changed |= (l0[i] != l1[i]);
+  EXPECT_TRUE(last_changed) << "last position's logits ignore its own id";
+}
+
+TEST(TransformerSmokeTest, OneStepReducesLoss) {
+  torch::manual_seed(0);
+  nn::Transformer model(XV, XD, XF, XL, XH, XT);
+  auto x = ids(1, 4, {1, 2, 3, 4});
+  auto target = seq_input(1, 4, XV, varied(4 * XV));
+  SGD opt(model.params(), 1e-3f);
+  float first = step(model, opt, x, target);
+  float second = step(model, opt, x, target);
+  EXPECT_LT(second, first);
 }

@@ -54,6 +54,16 @@ private:
   ag::VarPtr _bias;
 };
 
+class Embedding : public Module {
+public:
+  Embedding(int64_t vocab_sz, int64_t model_dim, DType dtype = DType::Float32,
+            Device dev = CPU);
+  ag::VarPtr forward(ag::VarPtr inp) override;
+
+private:
+  ag::VarPtr _weight;
+};
+
 class ReLU : public Module {
 public:
   ReLU() {}
@@ -90,16 +100,18 @@ private:
   ag::VarPtr _gain;
 };
 
-class MultiHeadSelfAttention : public Module {
+class MultiHeadAttention : public Module {
 public:
-  MultiHeadSelfAttention(int64_t d_model, int64_t n_heads, int64_t max_context,
-                         DType dtype = DType::Float32, Device dev = CPU);
+  MultiHeadAttention(int64_t d_model, int64_t n_heads, int64_t max_context,
+                     DType dtype = DType::Float32, Device dev = CPU,
+                     bool causal = true);
   ag::VarPtr forward(ag::VarPtr inp) override;
 
 private:
   ag::VarPtr _Wq, _Wk, _Wv, _Wo;
   int64_t _d_model, _n_heads, _max_context;
-  Tensor _causal_mask;
+  bool _causal;
+  std::optional<Tensor> _causal_cached;
 };
 
 class FFN : public Module {
@@ -120,7 +132,7 @@ public:
   ag::VarPtr forward(ag::VarPtr inp) override;
 
 private:
-  MultiHeadSelfAttention _atten;
+  MultiHeadAttention _atten;
   RMSNorm _n1, _n2;
   FFN _ff;
 };
@@ -134,9 +146,11 @@ public:
   ag::VarPtr forward(ag::VarPtr inp) override;
 
 private:
-  ag::VarPtr _pe;
+  ag::VarPtr _pe; // TODO: We should maybe make this a function? To enrich
+                  // position encoding?
+  Embedding _embed;
   std::vector<std::shared_ptr<TransformerBlock>> _blocks;
-  // Linear _unembed;
+  Linear _unembed;
 };
 
 } // namespace nn

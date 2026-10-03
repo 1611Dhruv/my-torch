@@ -14,6 +14,18 @@ public:
 private:
   autograd::VarPtr _loss;
 };
+
+class CrossEntropy {
+
+public:
+  CrossEntropy(autograd::VarPtr pred, autograd::VarPtr act);
+  const float &loss() const { return _loss->data().data_ptr<float>()[0]; };
+  void backward();
+
+private:
+  autograd::VarPtr _loss;
+};
+
 } // namespace torch
 
 #endif

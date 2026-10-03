@@ -297,5 +297,24 @@ Tensor index_select(const Tensor &a, const Tensor &idx, Tensor &out) {
   return out;
 }
 
+Tensor index_select_back(const Tensor &g, Tensor idx, Tensor &out) {
+  int64_t N = idx.numel();
+  auto data = idx.data_ptr<int>();
+  for (int64_t i = 0; i < N; i++) {
+    int index = data[i];
+    auto out_row = out[index];
+    auto g_row = g[i];
+    DISPATCH_OP(g.dtype(), [&] {
+      if constexpr (!std::is_same<scalar_t, uint8_t>() &&
+                    !std::is_same<scalar_t, int32_t>()) {
+        binary_elementwise<scalar_t>(
+            g_row, out_row, out_row,
+            [](scalar_t x, scalar_t y) { return x + y; });
+      }
+    });
+  }
+  return out;
+}
+
 } // namespace cpu
 } // namespace torch

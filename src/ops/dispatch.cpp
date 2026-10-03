@@ -442,4 +442,44 @@ Tensor index_select(const Tensor &a, Tensor idx) {
   return out;
 }
 
+Tensor index_select_back(const Tensor &g, Tensor idx, int64_t selected_dim_sz) {
+  if (idx.dtype() != DType::Int32) {
+    throw std::invalid_argument("index_select DType for indexes must be Int32");
+  }
+
+  if (g.device() != idx.device()) {
+    idx = idx.to(DType::Int32, g.device());
+  }
+
+  auto grad_shape = g.shape();
+  auto idx_shape_len = idx.shape().size();
+
+  if (idx_shape_len > grad_shape.size()) {
+    throw std::invalid_argument("returning gradient must have >= dim than idx");
+  }
+
+  // flatten the index
+  idx = idx.reshape({idx.numel()});
+
+  std::vector<int64_t> D(grad_shape.begin() + idx_shape_len, grad_shape.end());
+
+  std::vector<int64_t> index_grad_shape;
+  index_grad_shape.push_back(selected_dim_sz);
+  index_grad_shape.insert(index_grad_shape.end(), D.begin(), D.end());
+
+  std::vector<int64_t> g_flat_shape;
+
+  g_flat_shape.push_back(idx.numel());
+  g_flat_shape.insert(g_flat_shape.end(), D.begin(), D.end());
+  auto g_flat = g.reshape(g_flat_shape);
+
+  Tensor out = Tensor::zeros(index_grad_shape, g.dtype(), g.device());
+  if (g.device() == Device::CUDA) {
+    torch::cuda::index_select_back(g_flat, idx, out);
+  } else {
+    torch::cpu::index_select_back(g_flat, idx, out);
+  }
+  return out;
+}
+
 } // namespace torch

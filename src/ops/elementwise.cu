@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cuda_runtime_api.h>
+#include <device_atomic_functions.h>
 #include <sstream>
 #include <vector>
 
@@ -334,7 +335,7 @@ Tensor cast(const Tensor &a, Tensor &out) {
   return out;
 }
 
-template <typename scalar_t, const int T, const int WARP_SZ = 32>
+template <typename scalar_t, const int T, const bool add = false>
 __global__ void index_select_kernel(const int *idx, const scalar_t *src,
                                     scalar_t *dest, int N, int R, int M) {
   __shared__ int idx_s[T];
@@ -348,14 +349,18 @@ __global__ void index_select_kernel(const int *idx, const scalar_t *src,
   }
   __syncthreads();
 
-  int wid = tid / WARP_SZ;
-  int lid = tid % WARP_SZ;
+  int wid = tid / WARP_SIZE;
+  int lid = tid % WARP_SIZE;
 
-  constexpr int NUM_WARPS = (T + WARP_SZ - 1) / WARP_SZ;
+  constexpr int NUM_WARPS = (T + WARP_SIZE - 1) / WARP_SIZE;
   for (int woff = wid; woff < T; woff += NUM_WARPS) {
     if (woff + boff < N) {
-      for (int j = lid; j < R; j += WARP_SZ) {
-        dest[(woff + boff) * R + j] = src[idx_s[woff] * R + j];
+      for (int j = lid; j < R; j += WARP_SIZE) {
+        if constexpr (add) {
+          atomicAdd(&dest[idx_s[woff] * R + j], src[(woff + boff) * R + j]);
+        } else {
+          dest[(woff + boff) * R + j] = src[idx_s[woff] * R + j];
+        }
       }
     }
   }
@@ -377,6 +382,29 @@ Tensor index_select(const Tensor &a, const Tensor &idx, Tensor &out) {
     index_select_kernel<scalar_t, T>
         <<<grid, T>>>(idx.data_ptr<int>(), a_contig.data_ptr<scalar_t>(),
                       out.data_ptr<scalar_t>(), N, R, M);
+  });
+  CUDA_CHECK(cudaGetLastError());
+  return out;
+}
+
+Tensor index_select_back(const Tensor &g, Tensor idx, Tensor &out) {
+  int N = idx.numel();
+  constexpr int T = 256;
+  dim3 grid((N + T - 1) / T);
+
+  int R = out.numel() / out.shape()[0];
+  int M = out.shape()[0];
+
+  DISPATCH_OP(out.dtype(), [&] {
+    if (idx.dtype() != DType::Int32) {
+      throw std::invalid_argument("Called index_select where idx is not int32");
+    }
+    if constexpr (!std::is_same<scalar_t, uint8_t>() &&
+                  !std::is_same<scalar_t, int32_t>()) {
+      index_select_kernel<scalar_t, T, true>
+          <<<grid, T>>>(idx.data_ptr<int>(), g.data_ptr<scalar_t>(),
+                        out.data_ptr<scalar_t>(), N, R, M);
+    }
   });
   CUDA_CHECK(cudaGetLastError());
   return out;

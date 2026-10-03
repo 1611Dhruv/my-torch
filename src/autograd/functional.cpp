@@ -1,4 +1,5 @@
 #include "mytorch/autograd.h"
+#include "mytorch/ops.h"
 #include <stack>
 #include <unordered_set>
 
@@ -253,6 +254,13 @@ VarPtr flash_atten(VarPtr Q, VarPtr K, VarPtr V, bool causal) {
     V->accumulate_grad(dV);
   };
   return Variable::fromOp(O, {Q, K, V}, backward);
+}
+
+VarPtr index_select(VarPtr A, VarPtr I) {
+  auto backward = [A, I](const Tensor &g) {
+    A->accumulate_grad(index_select_back(g, I->data(), A->data().shape()[0]));
+  };
+  return Variable::fromOp(index_select(A->data(), I->data()), {A}, backward);
 }
 
 } // namespace autograd

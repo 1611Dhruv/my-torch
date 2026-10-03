@@ -76,6 +76,21 @@ ag::VarPtr Linear::forward(ag::VarPtr inp) {
   return ag::add(ag::matmul(inp, _weight), _bias);
 }
 
+// Embedding layer
+Embedding::Embedding(int64_t vocab_sz, int64_t model_dim, DType dtype,
+                     Device dev) {
+  // Construct a _in by _out
+  // so that forward is just: x = [Batch, _in] @ weight
+  _weight = register_param(
+      "weight", ag::Variable::leaf(Tensor::randn({vocab_sz, model_dim}, dev, 0,
+                                                 std::sqrt(2.0 / vocab_sz))
+                                       .to(dtype, dev)));
+}
+
+ag::VarPtr Embedding::forward(ag::VarPtr inp) {
+  return ag::index_select(_weight, inp);
+}
+
 // Sequential
 Sequential::Sequential(std::initializer_list<std::shared_ptr<Module>> modules)
     : _layers(modules) {
@@ -125,14 +140,14 @@ ag::VarPtr RMSNorm::forward(ag::VarPtr x) {
   return ag::mult(_gain, norm);
 }
 
-// MultiHeadSelfAttention
-MultiHeadSelfAttention::MultiHeadSelfAttention(int64_t d_model, int64_t n_heads,
-                                               int64_t max_context, DType dtype,
-                                               Device dev)
-    : _causal_mask({max_context, max_context}, DType::Float32, CPU),
-      _d_model(d_model),
+// MultiHeadAttention
+MultiHeadAttention::MultiHeadAttention(int64_t d_model, int64_t n_heads,
+                                       int64_t max_context, DType dtype,
+                                       Device dev, bool causal)
+    : _d_model(d_model),
       _n_heads(n_heads),
-      _max_context(max_context) {
+      _max_context(max_context),
+      _causal(causal) {
   if (d_model % n_heads) {
     throw std::invalid_argument(
         "The Attention model heads must divide model dim");
@@ -149,16 +164,10 @@ MultiHeadSelfAttention::MultiHeadSelfAttention(int64_t d_model, int64_t n_heads,
   _Wo = register_param(
       "Wo", ag::Variable::leaf(
                 torch::Tensor::randn({d_model, d_model}).to(dtype, dev)));
-  for (int64_t i = 0; i < max_context; i++) {
-    for (int64_t j = 0; j < max_context; j++) {
-      _causal_mask[i][j].item<float>() = (j > i) ? -1e11 : 0;
-    }
-  }
-  _causal_mask = _causal_mask.to(dtype, dev);
 }
 
 // Assume we got {T, N}
-ag::VarPtr MultiHeadSelfAttention::forward(ag::VarPtr inp) {
+ag::VarPtr MultiHeadAttention::forward(ag::VarPtr inp) {
   auto inp_shape = inp->data().shape();
   if (inp_shape.size() < 2) {
     // TODO: Could be changed to warning? but nah throw is right
@@ -196,14 +205,31 @@ ag::VarPtr MultiHeadSelfAttention::forward(ag::VarPtr inp) {
   // Flash is usable only on cuda with float32
   if (inp->data().device() == torch::Device::CUDA &&
       inp->data().dtype() == torch::DType::Float32) {
-    return ag::flash_atten(q_h, k_h, v_h, true);
+    return ag::flash_atten(q_h, k_h, v_h, _causal);
   } else {
     auto qkt = ag::scale(ag::matmul(q_h, ag::transpose(k_h, -1, -2)),
                          1.0 / std::sqrt(d_head));
-    // Mask qkt
-    auto msk =
-        ag::Variable::leaf(_causal_mask.slice(0, 0, T).slice(1, 0, T), false);
-    auto sft = ag::softmax(ag::add(qkt, msk));
+
+    ag::VarPtr sft;
+    if (_causal) {
+      // Mask qkt
+      if (!_causal_cached) {
+        Tensor _causal_mask = Tensor::zeros({_max_context, _max_context});
+        for (int64_t i = 0; i < _max_context; i++) {
+          for (int64_t j = i + 1; j < _max_context; j++) {
+            _causal_mask[i][j].item<float>() = -1e11;
+          }
+        }
+        _causal_cached =
+            _causal_mask.to(inp->data().dtype(), inp->data().device());
+      }
+
+      auto msk = ag::Variable::leaf(
+          _causal_cached->slice(0, 0, T).slice(1, 0, T), false);
+      sft = ag::softmax(ag::add(qkt, msk));
+    } else {
+      sft = ag::softmax(qkt);
+    }
     // {B, n_h, T, d_h}
     auto head_out = ag::matmul(sft, v_h);
     auto merge_back = ag::reshape(ag::transpose(head_out, 1, 2), inp_shape);
@@ -247,14 +273,16 @@ ag::VarPtr TransformerBlock::forward(ag::VarPtr inp) {
 // Transformer
 Transformer::Transformer(int64_t vocab_size, int64_t d_model, int64_t d_ff,
                          int64_t n_blocks, int64_t n_heads, int64_t max_context,
-                         DType dtype, Device dev) {
-  //: _unembed(d_model, vocab_size, dtype, dev) {
+                         DType dtype, Device dev)
+    : _embed(vocab_size, d_model, dtype, dev),
+      _unembed(d_model, vocab_size, dtype, dev) {
+  register_module("embed", &_embed);
   for (int i = 0; i < n_blocks; i++) {
     _blocks.emplace_back(std::make_shared<TransformerBlock>(
         d_model, d_ff, n_heads, max_context, dtype, dev));
     register_module("block " + std::to_string(i), _blocks.back().get());
   }
-  // register_module("unembed", &_unembed);
+  register_module("unembed", &_unembed);
 }
 
 void Transformer::set_pe(std::string type) {
@@ -262,18 +290,18 @@ void Transformer::set_pe(std::string type) {
     throw std::invalid_argument("rope aint roping yet");
   }
   if (type == "sin") {
-    throw std::invalid_argument("rope aint roping yet");
+    throw std::invalid_argument("sin aint sining yet");
   }
   if (type == "nope") {
     _pe = nullptr;
   }
 }
 ag::VarPtr Transformer::forward(ag::VarPtr inp) {
-  auto res = inp;
+  auto res = _embed(inp);
   for (auto &m : _blocks) {
     res = m->forward(res);
   }
-  return res;
+  return _unembed(res);
 };
 
 } // namespace nn

@@ -55,6 +55,7 @@ constexpr float csqrt(float a) {
   return x;
 }
 
+constexpr int WARP_SIZE = 32;
 } // namespace torch
 
 #endif // CUDA_UTILS_H

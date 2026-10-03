@@ -51,3 +51,7 @@ gtest_discover_tests(flash_test)
 add_executable(index_select_test index_select_test.cpp)
 target_link_libraries(index_select_test PRIVATE mytorch GTest::gtest_main)
 gtest_discover_tests(index_select_test)
+
+add_executable(loss_test loss_test.cpp)
+target_link_libraries(loss_test PRIVATE mytorch GTest::gtest_main)
+gtest_discover_tests(loss_test)
