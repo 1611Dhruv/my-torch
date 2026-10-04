@@ -132,7 +132,7 @@ public:
   ag::VarPtr forward(ag::VarPtr inp) override;
 
 private:
-  ag::VarPtr _W1, _W2, _W3;
+  ag::VarPtr _Wgate, _Wup, _Wdown;
 };
 
 class TransformerBlock : public Module {

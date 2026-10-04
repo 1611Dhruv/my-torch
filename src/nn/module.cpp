@@ -274,23 +274,24 @@ ag::VarPtr FFN::forward(ag::VarPtr inp) {
 
 // FFN_SwiGLU
 FFN_SwiGLU::FFN_SwiGLU(int64_t d_model, int64_t d_ff, DType dtype, Device dev) {
-  _W1 = register_param(
+  _Wgate = register_param(
       "W1", ag::Variable::leaf(
                 Tensor::randn({d_model, d_ff}, dev, 0, std::sqrt(2.0 / d_model))
                     .to(dtype, dev)));
-  _W2 = register_param(
+  _Wup = register_param(
       "W2", ag::Variable::leaf(
                 Tensor::randn({d_model, d_ff}, dev, 0, std::sqrt(2.0 / d_model))
                     .to(dtype, dev)));
-  _W3 = register_param("W3",
-                       ag::Variable::leaf(Tensor::randn({d_ff, d_model}, dev, 0,
-                                                        std::sqrt(2.0 / d_ff))
-                                              .to(dtype, dev)));
+  _Wdown = register_param(
+      "W3", ag::Variable::leaf(
+                Tensor::randn({d_ff, d_model}, dev, 0, std::sqrt(2.0 / d_ff))
+                    .to(dtype, dev)));
 }
 
 ag::VarPtr FFN_SwiGLU::forward(ag::VarPtr inp) {
   return ag::matmul(
-      ag::mult(ag::silu(ag::matmul(inp, _W1)), ag::matmul(inp, _W2)), _W3);
+      ag::mult(ag::silu(ag::matmul(inp, _Wgate)), ag::matmul(inp, _Wup)),
+      _Wdown);
 }
 
 // Transformer Block
