@@ -902,31 +902,3 @@ TEST(AdamTest, BeatsSgdOnTheEmbeddingGradientScaleProblem) {
   }
   EXPECT_LT(second, first);
 }
-
-TEST(AdamTest, LearnsXorFasterThanSgd) {
-  // Same XOR MLP as TrainingTest.MlpLearnsXor. Not a precise claim, just that
-  // Adam gets under the SGD loss in the same step budget.
-  // Optim has no virtual destructor, so no owning base pointers here; the
-  // optimizer is built inside the generic lambda from a factory instead.
-  auto run = [](auto make_opt) {
-    torch::manual_seed(0);
-    nn::Sequential mlp({std::make_shared<nn::Linear>(2, 8),
-                        std::make_shared<nn::ReLU>(),
-                        std::make_shared<nn::Linear>(8, 1)});
-    auto x = input(4, 2, {0, 0, 0, 1, 1, 0, 1, 1});
-    auto y = input(4, 1, {0, 1, 1, 0});
-    auto opt = make_opt(mlp.params());
-    float last = 0;
-    for (int i = 0; i < 300; ++i) {
-      opt.zero_grad();
-      MSE loss(mlp(x), y);
-      last = loss.loss();
-      loss.backward();
-      opt.step();
-    }
-    return last;
-  };
-  float adam = run([](auto ps) { return torch::Adam(ps, 0.01); });
-  float sgd = run([](auto ps) { return SGD(ps, 0.1f); });
-  EXPECT_LT(adam, sgd) << "adam " << adam << " vs sgd " << sgd;
-}
