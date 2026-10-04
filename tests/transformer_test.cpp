@@ -41,6 +41,7 @@
 
 using torch::CPU;
 using torch::DType;
+using torch::CrossEntropy;
 using torch::MSE;
 using torch::SGD;
 using torch::Tensor;
@@ -101,32 +102,28 @@ static VarPtr onehot_leaf(const std::vector<int32_t> &ids) {
   return Variable::leaf(t, false);
 }
 
-// The lowest MSE any function of the CURRENT id alone can reach: for each id,
-// predict the mean one-hot of its targets. This is the plateau a position-wise
-// model converges to, computed from the data rather than guessed.
+// The lowest cross-entropy any function of the CURRENT id alone can reach:
+// predict p(prev | current) from the batch counts. That is the conditional
+// entropy H(prev | current) in nats, the plateau a position-wise model
+// converges to, computed from the data rather than guessed.
 static float positionwise_optimum(const std::vector<int32_t> &in,
                                   const std::vector<int32_t> &want) {
   double total = 0.0;
   for (int32_t v = 1; v < SV; ++v) {
-    std::vector<double> mean(SV, 0.0);
-    int count = 0;
+    std::vector<double> count(SV, 0.0);
+    int n = 0;
     for (int64_t i = 0; i < SB * ST; ++i)
       if (in[i] == v) {
-        mean[want[i]] += 1.0;
-        ++count;
+        count[want[i]] += 1.0;
+        ++n;
       }
-    if (count == 0)
+    if (n == 0)
       continue;
-    for (auto &m : mean)
-      m /= count;
     for (int64_t i = 0; i < SB * ST; ++i)
       if (in[i] == v)
-        for (int32_t k = 0; k < SV; ++k) {
-          double target = (k == want[i]) ? 1.0 : 0.0;
-          total += (target - mean[k]) * (target - mean[k]);
-        }
+        total += -std::log(count[want[i]] / n);
   }
-  return static_cast<float>(total / (SB * ST * SV));
+  return static_cast<float>(total / (SB * ST));
 }
 
 static std::vector<float> to_vec(const Tensor &t) {
@@ -154,7 +151,7 @@ static Losses train(nn::Module &model, SGD &opt, const VarPtr &x,
   Losses l{0.0f, 0.0f};
   for (int i = 0; i < steps; ++i) {
     opt.zero_grad();
-    MSE loss(model(x), y);
+    CrossEntropy loss(model(x), y);
     float cur = loss.loss();
     if (i == 0)
       l.first = cur;
@@ -181,7 +178,7 @@ TEST(ShiftTaskTest, TaskIsNotAPositionwiseLookup) {
       ++ambiguous_ids;
   }
   EXPECT_GE(ambiguous_ids, 3) << "too few ids have multiple predecessors";
-  EXPECT_GT(positionwise_optimum(in, want), 0.01f);
+  EXPECT_GT(positionwise_optimum(in, want), 0.2f) << "in nats";
 }
 
 // ===========================================================================
@@ -225,13 +222,14 @@ TEST(ShiftTaskTest, TransformerOverfitsTheShiftTask) {
   const float opt_mse = positionwise_optimum(in, want);
 
   nn::Transformer model(SV, SD, SFF, SL, SH, /*max_context=*/ST);
-  SGD opt(model.params(), 0.01f);
-  auto l = train(model, opt, x, y, 2000);
+  model.set_pe("learned");
+  SGD opt(model.params(), 0.05f);
+  auto l = train(model, opt, x, y, 400);
 
   EXPECT_LT(l.last, l.first) << "loss never moved";
   EXPECT_LT(l.last, 0.25f * opt_mse)
       << "did not beat the position-wise optimum (" << opt_mse
-      << ") by a clear margin; final loss " << l.last
+      << " nats) by a clear margin; final loss " << l.last
       << ". If it plateaus near the optimum, attention isn't routing "
          "information across positions, or there is no positional signal.";
 }
@@ -246,8 +244,9 @@ TEST(ShiftTaskTest, LearnedFunctionIsActuallyTheShift) {
   auto y = onehot_leaf(want);
 
   nn::Transformer model(SV, SD, SFF, SL, SH, ST);
-  SGD opt(model.params(), 0.01f);
-  train(model, opt, x, y, 2000);
+  model.set_pe("learned");
+  SGD opt(model.params(), 0.05f);
+  train(model, opt, x, y, 400);
 
   auto out = model(x); // hold the VarPtr; only the data_ptr would dangle
   auto got = argmax_rows(to_vec(out->data()));
@@ -264,12 +263,13 @@ TEST(ShiftTaskTest, EveryParameterIsReachableFromTheTopLevel) {
   // never trains. Hand-count and compare.
   torch::manual_seed(0);
   nn::Transformer model(SV, SD, SFF, SL, SH, ST);
+  model.set_pe("learned");
 
   // Per block: 4 attention (Wq, Wk, Wv, Wo) + 2 RMSNorm gains + 2 FFN weights.
-  // Top level: 1 embedding table + 2 unembed (weight, bias).
-  // Update this when a positional parameter or a final norm is added.
+  // Top level: 1 embedding table + 1 learned positional table
+  //          + 2 unembed (weight, bias). Update when a final norm is added.
   const size_t per_block = 4 + 2 + 2;
-  const size_t top_level = 1 + 2;
+  const size_t top_level = 1 + 1 + 2;
   EXPECT_EQ(model.params().size(), SL * per_block + top_level);
 
   std::set<std::string> names;
@@ -284,6 +284,7 @@ TEST(ShiftTaskTest, WholeModelIsStillCausal) {
   torch::manual_seed(0);
   auto in = token_ids();
   nn::Transformer model(SV, SD, SFF, SL, SH, ST);
+  model.set_pe("learned");
 
   auto l0 = to_vec(model(id_leaf(in))->data());
   auto bumped = in;

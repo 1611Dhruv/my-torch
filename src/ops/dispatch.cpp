@@ -282,6 +282,13 @@ Tensor relu_back(const Tensor &a, const Tensor &g) {
   return elementwise_binary_dispatch(a, g, cpu::relu_back, cuda::relu_back);
 }
 
+Tensor silu(const Tensor &a) {
+  return elementwise_unary_dispatch(a, cpu::silu, cuda::silu);
+}
+Tensor silu_back(const Tensor &a, const Tensor &g) {
+  return elementwise_binary_dispatch(a, g, cpu::silu_back, cuda::silu_back);
+}
+
 Tensor cast(const Tensor &a, DType out_type) {
   Tensor out(a.shape(), out_type, a.device());
   if (a.device() == CUDA) {

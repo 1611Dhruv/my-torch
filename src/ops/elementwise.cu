@@ -84,7 +84,7 @@ __global__ void unary_kernel_strided(const scalar_t *a, scalar_t *out,
   out[i] = op(a[a_i]);
 }
 
-template <typename Op>
+template <bool float_only = false, typename Op>
 Tensor elementwise_binary_wrapper(const Tensor &a, const Tensor &b, Tensor &out,
                                   Op op) {
   assert(a.dtype() == b.dtype());
@@ -116,16 +116,28 @@ Tensor elementwise_binary_wrapper(const Tensor &a, const Tensor &b, Tensor &out,
       stride.b_strides[i] = stride_b[i];
     }
     DISPATCH_OP(a.dtype(), [&] {
-      binary_kernel_strided<scalar_t>
-          <<<blocks, threads>>>(a.data_ptr<scalar_t>(), b.data_ptr<scalar_t>(),
-                                out.data_ptr<scalar_t>(), n, op, stride);
+      if constexpr (float_only && !std::is_floating_point_v<scalar_t>) {
+        throw std::invalid_argument(
+            "Called elementwise_binary_wrapper which is "
+            "float only on a non float type");
+      } else {
+        binary_kernel_strided<scalar_t><<<blocks, threads>>>(
+            a.data_ptr<scalar_t>(), b.data_ptr<scalar_t>(),
+            out.data_ptr<scalar_t>(), n, op, stride);
+      }
     });
   } else {
     // Both are contiguous so just directly use quick kernel
     DISPATCH_OP(a.dtype(), [&] {
-      binary_kernel<scalar_t>
-          <<<blocks, threads>>>(a.data_ptr<scalar_t>(), b.data_ptr<scalar_t>(),
-                                out.data_ptr<scalar_t>(), n, op);
+      if constexpr (float_only && !std::is_floating_point_v<scalar_t>) {
+        throw std::invalid_argument(
+            "Called elementwise_binary_wrapper which is "
+            "float only on a non float type");
+      } else {
+        binary_kernel<scalar_t><<<blocks, threads>>>(
+            a.data_ptr<scalar_t>(), b.data_ptr<scalar_t>(),
+            out.data_ptr<scalar_t>(), n, op);
+      }
     });
   }
 
@@ -261,6 +273,28 @@ Tensor relu(const Tensor &a, Tensor &out) {
 Tensor relu_back(const Tensor &a, const Tensor &g, Tensor &out) {
   return elementwise_binary_wrapper(
       a, g, out, [] __device__(auto x, auto y) { return (x > 0) ? y : 0; });
+}
+
+Tensor silu(const Tensor &a, Tensor &out) {
+  return elementwise_unary_wrapper<true>(a, out, [] __device__(auto x) {
+    auto sigmoid = [] __device__(auto x) {
+      auto one = decltype(x)(1);
+      return (one / (one + ::exp(-x)));
+    };
+    return x * sigmoid(x);
+  });
+}
+
+Tensor silu_back(const Tensor &a, const Tensor &g, Tensor &out) {
+  return elementwise_binary_wrapper<true>(
+      a, g, out, [] __device__(auto x, auto y) {
+        auto sigmoid = [] __device__(auto x) {
+          auto one = decltype(x)(1);
+          return (one / (one + ::exp(-x)));
+        };
+        auto sig = sigmoid(x);
+        return y * (sig + x * sig * (1 - sig));
+      });
 }
 
 template <typename src_t, typename dest_t, const int BS = 128>

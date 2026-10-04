@@ -96,9 +96,9 @@ Embedding::Embedding(int64_t vocab_sz, int64_t model_dim, DType dtype,
   // Construct a _in by _out
   // so that forward is just: x = [Batch, _in] @ weight
   _weight = register_param(
-      "weight", ag::Variable::leaf(Tensor::randn({vocab_sz, model_dim}, dev, 0,
-                                                 std::sqrt(2.0 / vocab_sz))
-                                       .to(dtype, dev)));
+      "weight",
+      ag::Variable::leaf(
+          Tensor::randn({vocab_sz, model_dim}, dev, 0, 1).to(dtype, dev)));
 }
 
 ag::VarPtr Embedding::forward(ag::VarPtr inp) {
@@ -167,17 +167,21 @@ MultiHeadAttention::MultiHeadAttention(int64_t d_model, int64_t n_heads,
         "The Attention model heads must divide model dim");
   }
   _Wq = register_param(
-      "Wq", ag::Variable::leaf(
-                torch::Tensor::randn({d_model, d_model}).to(dtype, dev)));
+      "Wq", ag::Variable::leaf(torch::Tensor::randn({d_model, d_model}, dev, 0,
+                                                    std::sqrt(2.0 / d_model))
+                                   .to(dtype, dev)));
   _Wk = register_param(
-      "Wk", ag::Variable::leaf(
-                torch::Tensor::randn({d_model, d_model}).to(dtype, dev)));
+      "Wk", ag::Variable::leaf(torch::Tensor::randn({d_model, d_model}, dev, 0,
+                                                    std::sqrt(2.0 / d_model))
+                                   .to(dtype, dev)));
   _Wv = register_param(
-      "Wv", ag::Variable::leaf(
-                torch::Tensor::randn({d_model, d_model}).to(dtype, dev)));
+      "Wv", ag::Variable::leaf(torch::Tensor::randn({d_model, d_model}, dev, 0,
+                                                    std::sqrt(2.0 / d_model))
+                                   .to(dtype, dev)));
   _Wo = register_param(
-      "Wo", ag::Variable::leaf(
-                torch::Tensor::randn({d_model, d_model}).to(dtype, dev)));
+      "Wo", ag::Variable::leaf(torch::Tensor::randn({d_model, d_model}, dev, 0,
+                                                    std::sqrt(2.0 / d_model))
+                                   .to(dtype, dev)));
 }
 
 // Assume we got {T, N}
@@ -255,9 +259,13 @@ ag::VarPtr MultiHeadAttention::forward(ag::VarPtr inp) {
 // FFN
 FFN::FFN(int64_t d_model, int64_t d_ff, DType dtype, Device dev) {
   _W1 = register_param(
-      "W1", ag::Variable::leaf(Tensor::randn({d_model, d_ff}).to(dtype, dev)));
-  _W2 = register_param(
-      "W2", ag::Variable::leaf(Tensor::randn({d_ff, d_model}).to(dtype, dev)));
+      "W1", ag::Variable::leaf(
+                Tensor::randn({d_model, d_ff}, dev, 0, std::sqrt(2.0 / d_model))
+                    .to(dtype, dev)));
+  _W2 = register_param("W2",
+                       ag::Variable::leaf(Tensor::randn({d_ff, d_model}, dev, 0,
+                                                        std::sqrt(2.0 / d_ff))
+                                              .to(dtype, dev)));
 }
 
 ag::VarPtr FFN::forward(ag::VarPtr inp) {
@@ -291,7 +299,8 @@ Transformer::Transformer(int64_t vocab_size, int64_t d_model, int64_t d_ff,
     : _embed(vocab_size, d_model, dtype, dev),
       _unembed(d_model, vocab_size, dtype, dev),
       _max_context(max_context),
-      _d_model(d_model) {
+      _d_model(d_model),
+      _dev(dev) {
   register_module("embed", &_embed);
   for (int i = 0; i < n_blocks; i++) {
     _blocks.emplace_back(std::make_shared<TransformerBlock>(
@@ -333,7 +342,8 @@ void Transformer::set_pe(std::string type) {
     if (_pe_type != LEARNED) {
       cleanup();
     }
-    ag::VarPtr pe = ag::Variable::leaf(Tensor::randn({_max_context, _d_model}));
+    ag::VarPtr pe =
+        ag::Variable::leaf(Tensor::randn({_max_context, _d_model}, _dev, 0, 1));
     Tensor pos = Tensor::iota({_max_context}, 0);
 
     register_param("learned_pe", pe);

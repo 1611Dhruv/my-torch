@@ -154,6 +154,13 @@ VarPtr relu(VarPtr a) {
   return Variable::fromOp(torch::relu(a->data()), {a}, backward);
 }
 
+VarPtr silu(VarPtr a) {
+  auto backward = [a](const Tensor &g) -> void {
+    a->accumulate_grad(torch::silu_back(a->data(), g));
+  };
+  return Variable::fromOp(torch::silu(a->data()), {a}, backward);
+}
+
 VarPtr transpose(VarPtr a, int64_t dim1, int64_t dim2) {
   auto backward = [a, dim1, dim2](const Tensor &g) -> void {
     a->accumulate_grad(g.transpose(dim2, dim1));

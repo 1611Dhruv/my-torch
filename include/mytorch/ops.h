@@ -24,6 +24,8 @@ Tensor shift(const Tensor &a, double scalar);
 // Special Fused kernels
 Tensor relu(const Tensor &a);
 Tensor relu_back(const Tensor &a, const Tensor &g);
+Tensor silu(const Tensor &a);
+Tensor silu_back(const Tensor &a, const Tensor &g);
 // Takes Q,K,V and a output state
 Tensor flash_atten(const Tensor &Q, const Tensor &K, const Tensor &V,
                    Tensor &LSE, bool causal);
@@ -76,6 +78,8 @@ Tensor max(const Tensor &a, Tensor &out, const std::vector<int64_t> &dims);
 // Special fused kernels
 Tensor relu(const Tensor &a, Tensor &out);
 Tensor relu_back(const Tensor &a, const Tensor &g, Tensor &out);
+Tensor silu(const Tensor &a, Tensor &out);
+Tensor silu_back(const Tensor &a, const Tensor &g, Tensor &out);
 
 Tensor cast(const Tensor &a, Tensor &out);
 /*
@@ -123,6 +127,8 @@ Tensor max(const Tensor &a, Tensor &out, const std::vector<int64_t> &dims);
 // Special fused kernels
 Tensor relu(const Tensor &a, Tensor &out);
 Tensor relu_back(const Tensor &a, const Tensor &g, Tensor &out);
+Tensor silu(const Tensor &a, Tensor &out);
+Tensor silu_back(const Tensor &a, const Tensor &g, Tensor &out);
 Tensor flash_atten(const Tensor &Q, const Tensor &K, const Tensor &V,
                    Tensor &LSE, Tensor &out, bool causal);
 void flash_back(const Tensor &O, const Tensor &Q, const Tensor &K,

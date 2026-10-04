@@ -257,6 +257,33 @@ Tensor relu_back(const Tensor &a, const Tensor &g, Tensor &out) {
   return out;
 }
 
+Tensor silu(const Tensor &a, Tensor &out) {
+  DISPATCH_OP(a.dtype(), [&] {
+    unary_elementwise<scalar_t>(a, out, [](auto x) {
+      auto sigmoid = [](auto x) {
+        auto one = decltype(x)(1);
+        return (one / (one + ::exp(-x)));
+      };
+      return x * sigmoid(x);
+    });
+  });
+  return out;
+}
+
+Tensor silu_back(const Tensor &a, const Tensor &g, Tensor &out) {
+  DISPATCH_OP(a.dtype(), [&] {
+    binary_elementwise<scalar_t>(a, g, out, [](auto x, auto y) {
+      auto sigmoid = [](auto x) {
+        auto one = decltype(x)(1);
+        return (one / (one + ::exp(-x)));
+      };
+      auto sig = sigmoid(x);
+      return y * (sig + x * sig * (1 - sig));
+    });
+  });
+  return out;
+}
+
 Tensor cast(const Tensor &a, Tensor &out) {
   DISPATCH_OP_AS(a.dtype(), src_t, [&]() {
     DISPATCH_OP_AS(out.dtype(), dest_t, [&] {

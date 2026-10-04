@@ -266,6 +266,18 @@ TEST(AutogradNumerical, ReLU) {
                  {a});
 }
 
+TEST(AutogradNumerical, SiLU) {
+  // Runs in Float64, so a sigmoid pinned to float inside the kernel shows up
+  // here as a ~1e-7 relative error that the tolerance rejects.
+  auto a = torch::Tensor::randn({2, 3, 4}).to(torch::DType::Float64,
+                                              torch::Device::CPU);
+  gradient_check("silu",
+                 [&](std::vector<torch::autograd::VarPtr> inps) {
+                   return torch::autograd::silu(inps[0]);
+                 },
+                 {a});
+}
+
 TEST(AutogradNumerical, Neg) {
   auto a = torch::Tensor::randn({2, 3, 4}).to(torch::DType::Float64,
                                               torch::Device::CPU);
@@ -685,6 +697,12 @@ TEST(AutogradNumericalCuda, Sin) {
 TEST(AutogradNumericalCuda, Cos) {
   gradient_check("cuda cos",
                  [](std::vector<ag::VarPtr> in) { return ag::cos(in[0]); },
+                 {hp({2, 3, 4}, Device::CUDA)});
+}
+
+TEST(AutogradNumericalCuda, SiLU) {
+  gradient_check("cuda silu",
+                 [](std::vector<ag::VarPtr> in) { return ag::silu(in[0]); },
                  {hp({2, 3, 4}, Device::CUDA)});
 }
 

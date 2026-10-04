@@ -17,6 +17,7 @@
 #include "mytorch/cuda_utils.h"
 #include "mytorch/ops.h"
 #include "mytorch/tensor.h"
+#include <cmath>
 #include <gtest/gtest.h>
 #include <stdexcept>
 #include <vector>
@@ -444,4 +445,98 @@ TEST(ElementwiseDtypeTest, IntegerDtypesStillWorkForNonTranscendentals) {
   EXPECT_NO_THROW(torch::add(a, b));
   EXPECT_NO_THROW(torch::mult(a, b));
   EXPECT_NO_THROW(torch::sum(a, {0}, true));
+}
+
+// --- SiLU / Swish: x * sigmoid(x) -------------------------------------------
+//
+// Fixed points worth pinning: silu(0) = 0, silu(x) -> x for large positive x,
+// silu(x) -> 0 for large negative x, the global minimum sits near x = -1.2785
+// with value -0.27846, and silu'(0) = 1/2. Backward is g * (s + x s (1 - s))
+// with s = sigmoid(x), so passing g = 2 must exactly double the result.
+
+TEST(ElementwiseTest, SiluFixedPoints) {
+  Tensor a({5});
+  fill(a, {0.f, 20.f, -20.f, -1.2784645f, 1.f});
+  Tensor out = torch::silu(a);
+  std::vector<float> want = {0.f, 20.f, 0.f, -0.27846455f, 0.7310586f};
+  ASSERT_EQ(out.numel(), 5);
+  const float *p = out.data_ptr<float>();
+  for (int i = 0; i < 5; ++i)
+    EXPECT_NEAR(p[i], want[i], 1e-5f) << "at " << i;
+}
+
+TEST(ElementwiseTest, SiluIsFiniteAtExtremes) {
+  Tensor a({4});
+  fill(a, {100.f, -100.f, 1e4f, -1e4f});
+  Tensor out = torch::silu(a);
+  const float *p = out.data_ptr<float>();
+  for (int i = 0; i < 4; ++i)
+    EXPECT_TRUE(std::isfinite(p[i])) << "at " << i;
+  EXPECT_FLOAT_EQ(p[0], 100.f);
+  // silu(-100) = -100 * sigmoid(-100) ~= -3.7e-42: a denormal, not exactly 0.
+  EXPECT_NEAR(p[1], 0.f, 1e-30f);
+}
+
+TEST(ElementwiseTest, SiluBackAtKnownPoints) {
+  // silu'(0) = 0.5; silu'(x) -> 1 for large positive; -> 0 for large negative.
+  Tensor a({3});
+  fill(a, {0.f, 20.f, -20.f});
+  Tensor g = Tensor::ones({3});
+  Tensor out = torch::silu_back(a, g);
+  std::vector<float> want = {0.5f, 1.f, 0.f};
+  expect_close(out, want);
+}
+
+TEST(ElementwiseTest, SiluBackScalesLinearlyWithUpstreamGrad) {
+  // A backward that forgets to multiply by g passes every g = 1 test.
+  Tensor a({4});
+  fill(a, {-2.f, -0.5f, 0.7f, 3.f});
+  Tensor g1 = Tensor::ones({4});
+  Tensor g2({4});
+  fill(g2, {2.f, 2.f, 2.f, 2.f});
+  Tensor o1 = torch::silu_back(a, g1);
+  Tensor o2 = torch::silu_back(a, g2);
+  const float *p1 = o1.data_ptr<float>();
+  const float *p2 = o2.data_ptr<float>();
+  for (int i = 0; i < 4; ++i)
+    EXPECT_NEAR(p2[i], 2.f * p1[i], 1e-6f) << "at " << i;
+}
+
+TEST(ElementwiseTest, SiluTransposedInputMatchesContiguous) {
+  Tensor base({3, 4});
+  std::vector<float> vals(12);
+  for (int i = 0; i < 12; ++i)
+    vals[i] = 0.5f * i - 3.f;
+  fill(base, vals);
+  Tensor a = base.transpose(0, 1);
+  ASSERT_FALSE(a.is_contiguous());
+  Tensor got = torch::silu(a);
+  Tensor a_c = a.contiguous();
+  Tensor want = torch::silu(a_c);
+  expect_tensors_close(got, want);
+}
+
+TEST(ElementwiseCudaTest, SiluMatchesCpu) {
+  // Catches a device forward that returns sigmoid(x) instead of x*sigmoid(x).
+  Tensor a({7});
+  fill(a, {-3.f, -1.f, -0.1f, 0.f, 0.1f, 1.f, 3.f});
+  Tensor want = torch::silu(a);
+  Tensor got = torch::silu(a.to(DType::Float32, CUDA)).to(DType::Float32, CPU);
+  expect_tensors_close(got, want);
+}
+
+TEST(ElementwiseCudaTest, SiluBackMatchesCpu) {
+  Tensor a({7});
+  fill(a, {-3.f, -1.f, -0.1f, 0.f, 0.1f, 1.f, 3.f});
+  Tensor g({7});
+  fill(g, {1.f, 2.f, -1.f, 0.5f, 3.f, -2.f, 1.f});
+  Tensor want = torch::silu_back(a, g);
+  Tensor got = torch::silu_back(a.to(DType::Float32, CUDA),
+                                g.to(DType::Float32, CUDA))
+                   .to(DType::Float32, CPU);
+  ASSERT_EQ(got.shape(), want.shape());
+  const float *pg = got.data_ptr<float>();
+  const float *pw = want.data_ptr<float>();
+  for (int i = 0; i < 7; ++i)
+    EXPECT_NEAR(pg[i], pw[i], 1e-5f) << "at " << i; // __expf is ~2 ulp
 }

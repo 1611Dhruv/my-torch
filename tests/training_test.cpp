@@ -20,6 +20,7 @@
 #include "mytorch/optim.h"
 #include "mytorch/tensor.h"
 #include <cmath>
+#include <cstdio>
 #include <gtest/gtest.h>
 #include <memory>
 #include <vector>
@@ -788,4 +789,26 @@ TEST(TransformerSmokeTest, OneStepReducesLoss) {
   float first = step(model, opt, x, target);
   float second = step(model, opt, x, target);
   EXPECT_LT(second, first);
+}
+
+TEST(TransformerSmokeTest, ReportGradientScalePerParameter) {
+  // Diagnostic, not a pass/fail gate: prints |grad| / |param| for every
+  // parameter after one backward on the smoke fixture. A ratio far above the
+  // others says that parameter will move disproportionately under plain SGD.
+  torch::manual_seed(0);
+  nn::Transformer model(XV, XD, XF, XL, XH, XT);
+  auto x = ids(1, 4, {1, 2, 3, 4});
+  auto target = seq_input(1, 4, XV, varied(4 * XV));
+  MSE loss(model(x), target);
+  loss.backward();
+  for (auto &[name, p] : model.named_params()) {
+    auto w = to_vec(p->data());
+    auto g = to_vec(*p->grad());
+    double nw = 0, ng = 0;
+    for (float v : w) nw += double(v) * v;
+    for (float v : g) ng += double(v) * v;
+    std::printf("  %-28s |w|=%9.4f |g|=%9.4f  |g|/|w|=%8.2f\n", name.c_str(),
+                std::sqrt(nw), std::sqrt(ng), std::sqrt(ng) / std::sqrt(nw));
+  }
+  std::printf("  initial loss %.4f\n", loss.loss());
 }

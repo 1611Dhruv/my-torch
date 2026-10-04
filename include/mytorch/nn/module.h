@@ -153,6 +153,7 @@ private:
 
   int64_t _max_context;
   int64_t _d_model;
+  Device _dev;
 
   Embedding _embed;
   std::vector<std::shared_ptr<TransformerBlock>> _blocks;
