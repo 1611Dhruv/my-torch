@@ -812,3 +812,121 @@ TEST(TransformerSmokeTest, ReportGradientScalePerParameter) {
   }
   std::printf("  initial loss %.4f\n", loss.loss());
 }
+
+// ===========================================================================
+// Adam -- bias-corrected moments, sign-like first step, eps on zero grads
+// ===========================================================================
+
+TEST(AdamTest, FirstStepIsLrTimesSignOfGradient) {
+  // With bias correction, m_hat = g and v_hat = g^2 at t = 1, so the update is
+  // exactly lr * sign(g) per element regardless of gradient scale. Without
+  // correction it's ~3.16 * lr; with the correction factors inverted it's
+  // 10 * lr. The zero-gradient element exercises the eps path (0/0 -> NaN
+  // without it) and must not move.
+  Tensor t({4}, DType::Float32, CPU);
+  float *p = t.data_ptr<float>();
+  p[0] = p[1] = p[2] = p[3] = 1.0f;
+  auto w = Variable::leaf(t, true);
+
+  Tensor g({4}, DType::Float32, CPU);
+  float *gp = g.data_ptr<float>();
+  gp[0] = 1.f; gp[1] = -2.f; gp[2] = 1000.f; gp[3] = 0.f;
+  w->accumulate_grad(g);
+
+  torch::Adam opt({w}, 0.1);
+  opt.step();
+
+  auto got = to_vec(w->data());
+  EXPECT_NEAR(got[0], 0.9f, 1e-5f) << "positive grad should move down by lr";
+  EXPECT_NEAR(got[1], 1.1f, 1e-5f) << "negative grad should move up by lr";
+  EXPECT_NEAR(got[2], 0.9f, 1e-5f) << "huge grad must still move by exactly lr";
+  EXPECT_FLOAT_EQ(got[3], 1.0f) << "zero grad must not move (and not be NaN)";
+  for (float v : got)
+    EXPECT_TRUE(std::isfinite(v));
+}
+
+TEST(AdamTest, ConstantGradientKeepsStepSizeAtLr) {
+  // Feed the same gradient for several steps. With correct bias correction
+  // m_hat / sqrt(v_hat) stays exactly sign(g), so each step moves by lr and
+  // the parameter walks in a straight line: w_t = w_0 - t * lr.
+  Tensor t({1}, DType::Float32, CPU);
+  t.data_ptr<float>()[0] = 0.f;
+  auto w = Variable::leaf(t, true);
+  torch::Adam opt({w}, 0.01);
+
+  for (int step = 1; step <= 20; ++step) {
+    w->zero_grad();
+    Tensor g({1}, DType::Float32, CPU);
+    g.data_ptr<float>()[0] = 3.f;
+    w->accumulate_grad(g);
+    opt.step();
+    EXPECT_NEAR(w->data().data_ptr<float>()[0], -0.01f * step, 1e-5f)
+        << "after step " << step;
+  }
+}
+
+TEST(AdamTest, RejectsEmptyParameterList) {
+  EXPECT_THROW(torch::Adam({}, 0.1), std::invalid_argument);
+}
+
+TEST(AdamTest, ThrowsIfStepCalledWithoutBackward) {
+  auto w = Variable::leaf(Tensor::ones({2}), true);
+  torch::Adam opt({w}, 0.1);
+  EXPECT_THROW(opt.step(), std::logic_error);
+}
+
+TEST(AdamTest, BeatsSgdOnTheEmbeddingGradientScaleProblem) {
+  // The smoke fixture where plain SGD at lr=1e-3 raised the loss because the
+  // embedding's gradient was ~600x its weight norm. Adam's per-element
+  // normalisation should make one step reduce the loss at a sane lr.
+  torch::manual_seed(0);
+  nn::Transformer model(XV, XD, XF, XL, XH, XT);
+  auto x = ids(1, 4, {1, 2, 3, 4});
+  auto target = seq_input(1, 4, XV, varied(4 * XV));
+
+  torch::Adam opt(model.params(), 1e-3);
+  float first, second;
+  {
+    opt.zero_grad();
+    MSE loss(model(x), target);
+    first = loss.loss();
+    loss.backward();
+    opt.step();
+  }
+  {
+    opt.zero_grad();
+    MSE loss(model(x), target);
+    second = loss.loss();
+    loss.backward();
+    opt.step();
+  }
+  EXPECT_LT(second, first);
+}
+
+TEST(AdamTest, LearnsXorFasterThanSgd) {
+  // Same XOR MLP as TrainingTest.MlpLearnsXor. Not a precise claim, just that
+  // Adam gets under the SGD loss in the same step budget.
+  // Optim has no virtual destructor, so no owning base pointers here; the
+  // optimizer is built inside the generic lambda from a factory instead.
+  auto run = [](auto make_opt) {
+    torch::manual_seed(0);
+    nn::Sequential mlp({std::make_shared<nn::Linear>(2, 8),
+                        std::make_shared<nn::ReLU>(),
+                        std::make_shared<nn::Linear>(8, 1)});
+    auto x = input(4, 2, {0, 0, 0, 1, 1, 0, 1, 1});
+    auto y = input(4, 1, {0, 1, 1, 0});
+    auto opt = make_opt(mlp.params());
+    float last = 0;
+    for (int i = 0; i < 300; ++i) {
+      opt.zero_grad();
+      MSE loss(mlp(x), y);
+      last = loss.loss();
+      loss.backward();
+      opt.step();
+    }
+    return last;
+  };
+  float adam = run([](auto ps) { return torch::Adam(ps, 0.01); });
+  float sgd = run([](auto ps) { return SGD(ps, 0.1f); });
+  EXPECT_LT(adam, sgd) << "adam " << adam << " vs sgd " << sgd;
+}

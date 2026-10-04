@@ -124,7 +124,7 @@ void example_xor() {
 
   VarPtr x_var = Variable::leaf(x, false);
   VarPtr y_var = Variable::leaf(y, false);
-  auto opt = torch::SGD(net.params(), 0.01);
+  auto opt = torch::Adam(net.params(), 0.01);
 
   for (int epoch = 0; epoch < 10000; epoch++) {
     opt.zero_grad();
@@ -144,8 +144,8 @@ void example_xor() {
 
 int main() {
   // example_linear_handrolled();
-  example_linear_loop();
-  // example_xor();
+  // example_linear_loop();
+  example_xor();
 
   // to test
   return 0;
