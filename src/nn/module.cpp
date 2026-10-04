@@ -272,6 +272,27 @@ ag::VarPtr FFN::forward(ag::VarPtr inp) {
   return ag::matmul(ag::relu(ag::matmul(inp, _W1)), _W2);
 }
 
+// FFN_SwiGLU
+FFN_SwiGLU::FFN_SwiGLU(int64_t d_model, int64_t d_ff, DType dtype, Device dev) {
+  _W1 = register_param(
+      "W1", ag::Variable::leaf(
+                Tensor::randn({d_model, d_ff}, dev, 0, std::sqrt(2.0 / d_model))
+                    .to(dtype, dev)));
+  _W2 = register_param("W2",
+                       ag::Variable::leaf(Tensor::randn({d_model, d_ff}, dev, 0,
+                                                        std::sqrt(2.0 / d_ff))
+                                              .to(dtype, dev)));
+  _W3 = register_param("W3",
+                       ag::Variable::leaf(Tensor::randn({d_ff, d_model}, dev, 0,
+                                                        std::sqrt(2.0 / d_ff))
+                                              .to(dtype, dev)));
+}
+
+ag::VarPtr FFN_SwiGLU::forward(ag::VarPtr inp) {
+  return ag::matmul(
+      ag::mult(ag::silu(ag::matmul(_W1, inp)), ag::matmul(_W2, inp)), _W3);
+}
+
 // Transformer Block
 TransformerBlock::TransformerBlock(int64_t d_model, int64_t d_ff,
                                    int64_t n_heads, int64_t max_context,

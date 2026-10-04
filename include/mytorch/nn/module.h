@@ -125,6 +125,16 @@ private:
   ag::VarPtr _W1, _W2;
 };
 
+class FFN_SwiGLU : public Module {
+public:
+  FFN_SwiGLU(int64_t d_model, int64_t d_ff, DType dtype = DType::Float32,
+             Device dev = CPU);
+  ag::VarPtr forward(ag::VarPtr inp) override;
+
+private:
+  ag::VarPtr _W1, _W2, _W3;
+};
+
 class TransformerBlock : public Module {
 public:
   TransformerBlock(int64_t d_model, int64_t d_ff, int64_t n_heads,
@@ -135,7 +145,7 @@ public:
 private:
   MultiHeadAttention _atten;
   RMSNorm _n1, _n2;
-  FFN _ff;
+  FFN_SwiGLU _ff;
 };
 
 class Transformer : public Module {
