@@ -446,6 +446,24 @@ Tensor Tensor::randn_like_hp(const Tensor &other, double mean, double std) {
   return t;
 }
 
+Tensor Tensor::iota(std::vector<int64_t> shape, int start, Device device) {
+  Tensor t(shape, torch::DType::Int32, device);
+  int64_t n = t.numel();
+  int64_t nb = t._storage.size();
+  void *host = (device == CPU) ? t._storage.get() : malloc(nb);
+
+  int *p = static_cast<int *>(host);
+  for (int64_t i = 0; i < n; i++) {
+    p[i] = i;
+  }
+
+  if (device == CUDA) {
+    CUDA_CHECK(cudaMemcpy(t._storage.get(), host, nb, cudaMemcpyHostToDevice));
+    free(host);
+  }
+  return t;
+}
+
 namespace {
 static std::string get_dtype(DType dt) {
   switch (dt) {

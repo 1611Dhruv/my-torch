@@ -61,6 +61,20 @@ ag::VarPtr Module::register_param(const std::string &name, ag::VarPtr param) {
   return param;
 }
 
+bool Module::unregister_param(const std::string &name) {
+  bool found = false;
+  int64_t num_params = _params.size();
+  for (int64_t i = 0; i < num_params; i++) {
+    if (_params[i].first == name) {
+      found = true;
+      swap(_params[i], _params[num_params - 1]);
+      _params.pop_back();
+      break;
+    }
+  }
+  return found;
+}
+
 // Linear layer
 Linear::Linear(int64_t in_dim, int64_t out_dim, DType dtype, Device dev) {
   // Construct a _in by _out
@@ -275,7 +289,9 @@ Transformer::Transformer(int64_t vocab_size, int64_t d_model, int64_t d_ff,
                          int64_t n_blocks, int64_t n_heads, int64_t max_context,
                          DType dtype, Device dev)
     : _embed(vocab_size, d_model, dtype, dev),
-      _unembed(d_model, vocab_size, dtype, dev) {
+      _unembed(d_model, vocab_size, dtype, dev),
+      _max_context(max_context),
+      _d_model(d_model) {
   register_module("embed", &_embed);
   for (int i = 0; i < n_blocks; i++) {
     _blocks.emplace_back(std::make_shared<TransformerBlock>(
@@ -286,6 +302,17 @@ Transformer::Transformer(int64_t vocab_size, int64_t d_model, int64_t d_ff,
 }
 
 void Transformer::set_pe(std::string type) {
+  auto cleanup = [&]() {
+    switch (_pe_type) {
+    case LEARNED: {
+      unregister_param("learned_pe");
+      _pe_func = nullptr;
+    } break;
+    default: {
+    } break;
+    }
+  };
+
   if (type == "rope") {
     throw std::invalid_argument("rope aint roping yet");
   }
@@ -293,11 +320,33 @@ void Transformer::set_pe(std::string type) {
     throw std::invalid_argument("sin aint sining yet");
   }
   if (type == "nope") {
-    _pe = nullptr;
+    if (_pe_type != NOPE) {
+      cleanup();
+    }
+    _pe_type = NOPE;
+  }
+  if (type == "learned") {
+    if (_pe_type != LEARNED) {
+      cleanup();
+    }
+    ag::VarPtr pe = ag::Variable::leaf(Tensor::randn({_max_context, _d_model}));
+    Tensor pos = Tensor::iota({_max_context}, 0);
+    register_param("learned_pe", pe);
+    _pe_func = [&](ag::VarPtr inp) {
+      int64_t T = inp->data().shape()[inp->data().shape().size() - 2];
+      ag::VarPtr pos_ptr = ag::Variable::leaf(pos.slice(0, 0, T), false);
+
+      return ag::add(inp, ag::index_select(pe, pos_ptr));
+    };
+    _pe_type = LEARNED;
   }
 }
 ag::VarPtr Transformer::forward(ag::VarPtr inp) {
   auto res = _embed(inp);
+
+  if (_pe_type == LEARNED) {
+    res = _pe_func(res);
+  }
   for (auto &m : _blocks) {
     res = m->forward(res);
   }

@@ -62,6 +62,9 @@ public:
   static Tensor randn(std::vector<int64_t> shape, Device device = Device::CPU,
                       double mean = 0, double std = 1);
 
+  static Tensor iota(std::vector<int64_t> shape, int start,
+                     Device device = Device::CPU);
+
   // Need for gradcheck
   static Tensor randn_like_hp(const Tensor &other, double mean = 0,
                               double std = 1);

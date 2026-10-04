@@ -33,6 +33,7 @@ protected:
   // Each nn module should be able to either register a param or a module
   void register_module(const std::string &name, Module *module);
   ag::VarPtr register_param(const std::string &name, ag::VarPtr param);
+  bool unregister_param(const std::string &name);
 
 private:
   // Just use raw ptr to submodule this guy might have
@@ -146,8 +147,13 @@ public:
   ag::VarPtr forward(ag::VarPtr inp) override;
 
 private:
-  ag::VarPtr _pe; // TODO: We should maybe make this a function? To enrich
-                  // position encoding?
+  enum PeKind { ROPE, LEARNED, SIN, NOPE };
+  std::function<ag::VarPtr(ag::VarPtr)> _pe_func;
+  PeKind _pe_type = NOPE;
+
+  int64_t _max_context;
+  int64_t _d_model;
+
   Embedding _embed;
   std::vector<std::shared_ptr<TransformerBlock>> _blocks;
   Linear _unembed;
