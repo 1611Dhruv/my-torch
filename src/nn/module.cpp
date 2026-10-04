@@ -317,7 +317,11 @@ void Transformer::set_pe(std::string type) {
     throw std::invalid_argument("rope aint roping yet");
   }
   if (type == "sin") {
-    throw std::invalid_argument("sin aint sining yet");
+    _pe_func = [&](ag::VarPtr inp) {
+      // more
+      return inp;
+    };
+    _pe_type = SIN;
   }
   if (type == "nope") {
     if (_pe_type != NOPE) {
@@ -331,8 +335,10 @@ void Transformer::set_pe(std::string type) {
     }
     ag::VarPtr pe = ag::Variable::leaf(Tensor::randn({_max_context, _d_model}));
     Tensor pos = Tensor::iota({_max_context}, 0);
+
     register_param("learned_pe", pe);
-    _pe_func = [&](ag::VarPtr inp) {
+
+    _pe_func = [pe, pos](ag::VarPtr inp) {
       int64_t T = inp->data().shape()[inp->data().shape().size() - 2];
       ag::VarPtr pos_ptr = ag::Variable::leaf(pos.slice(0, 0, T), false);
 
