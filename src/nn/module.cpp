@@ -290,7 +290,7 @@ FFN_SwiGLU::FFN_SwiGLU(int64_t d_model, int64_t d_ff, DType dtype, Device dev) {
 
 ag::VarPtr FFN_SwiGLU::forward(ag::VarPtr inp) {
   return ag::matmul(
-      ag::mult(ag::silu(ag::matmul(_W1, inp)), ag::matmul(_W2, inp)), _W3);
+      ag::mult(ag::silu(ag::matmul(inp, _W1)), ag::matmul(inp, _W2)), _W3);
 }
 
 // Transformer Block
