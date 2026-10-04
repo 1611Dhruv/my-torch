@@ -278,10 +278,10 @@ FFN_SwiGLU::FFN_SwiGLU(int64_t d_model, int64_t d_ff, DType dtype, Device dev) {
       "W1", ag::Variable::leaf(
                 Tensor::randn({d_model, d_ff}, dev, 0, std::sqrt(2.0 / d_model))
                     .to(dtype, dev)));
-  _W2 = register_param("W2",
-                       ag::Variable::leaf(Tensor::randn({d_model, d_ff}, dev, 0,
-                                                        std::sqrt(2.0 / d_ff))
-                                              .to(dtype, dev)));
+  _W2 = register_param(
+      "W2", ag::Variable::leaf(
+                Tensor::randn({d_model, d_ff}, dev, 0, std::sqrt(2.0 / d_model))
+                    .to(dtype, dev)));
   _W3 = register_param("W3",
                        ag::Variable::leaf(Tensor::randn({d_ff, d_model}, dev, 0,
                                                         std::sqrt(2.0 / d_ff))
