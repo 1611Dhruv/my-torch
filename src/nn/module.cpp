@@ -275,17 +275,17 @@ ag::VarPtr FFN::forward(ag::VarPtr inp) {
 // FFN_SwiGLU
 FFN_SwiGLU::FFN_SwiGLU(int64_t d_model, int64_t d_ff, DType dtype, Device dev) {
   _Wgate = register_param(
-      "W1", ag::Variable::leaf(
-                Tensor::randn({d_model, d_ff}, dev, 0, std::sqrt(2.0 / d_model))
-                    .to(dtype, dev)));
+      "Wgate", ag::Variable::leaf(Tensor::randn({d_model, d_ff}, dev, 0,
+                                                std::sqrt(2.0 / d_model))
+                                      .to(dtype, dev)));
   _Wup = register_param(
-      "W2", ag::Variable::leaf(
-                Tensor::randn({d_model, d_ff}, dev, 0, std::sqrt(2.0 / d_model))
-                    .to(dtype, dev)));
+      "Wup", ag::Variable::leaf(Tensor::randn({d_model, d_ff}, dev, 0,
+                                              std::sqrt(2.0 / d_model))
+                                    .to(dtype, dev)));
   _Wdown = register_param(
-      "W3", ag::Variable::leaf(
-                Tensor::randn({d_ff, d_model}, dev, 0, std::sqrt(2.0 / d_ff))
-                    .to(dtype, dev)));
+      "Wdown", ag::Variable::leaf(
+                   Tensor::randn({d_ff, d_model}, dev, 0, std::sqrt(2.0 / d_ff))
+                       .to(dtype, dev)));
 }
 
 ag::VarPtr FFN_SwiGLU::forward(ag::VarPtr inp) {
