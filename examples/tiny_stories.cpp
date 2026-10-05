@@ -1,3 +1,7 @@
+#include "mytorch/autograd.h"
+#include "mytorch/loss.h"
+#include "mytorch/nn/module.h"
+#include "mytorch/optim.h"
 #include "mytorch/tensor.h"
 #include <cstring>
 #include <fcntl.h>
@@ -49,7 +53,40 @@ private:
   torch::Device _dev;
 };
 
-void train_and_save() {}
+void train_and_save(const std::string &model_file, const char *data,
+                    int64_t num_tokens) {
+  constexpr int64_t B = 128;
+  constexpr int64_t T = 64;
+
+  constexpr int64_t VOCAB = 256;
+  constexpr int64_t DMODEL = 128;
+  constexpr int64_t NHEADS = 4;
+  constexpr int64_t DFF = (8 * DMODEL) / 3;
+  constexpr int64_t NBLOCKS = 10;
+
+  Load<uint8_t> loader(reinterpret_cast<const uint8_t *>(data), num_tokens, B,
+                       T, torch::DType::Int32, torch::Device::CPU);
+
+  torch::nn::Transformer model(VOCAB, DMODEL, DFF, NBLOCKS, 4, T);
+  torch::Adam opt(model.params(), 0.001);
+
+  constexpr int64_t EPOCH = 10;
+  for (int64_t epoch = 0; epoch < EPOCH; epoch++) {
+    auto [x_data, y_data] = loader.batch();
+    auto X = torch::autograd::Variable::leaf(x_data, false);
+    auto Y = torch::autograd::Variable::leaf(y_data, false);
+
+    opt.zero_grad();
+    auto Y_hat = model(X);
+    auto loss = torch::CrossEntropy(Y_hat, Y);
+    std::cout << "epoch " << epoch << ", Avg Loss: " << loss.loss()
+              << std::endl;
+
+    loss.backward();
+    opt.step();
+  }
+  model.save(model_file);
+}
 
 size_t get_file_size(int fd) {
   struct stat s;
@@ -84,5 +121,6 @@ int main(int arg, char **argv) {
   tokens_map =
       static_cast<char *>(mmap(0, fbytes, PROT_READ, MAP_SHARED, fd, 0));
 
+  train_and_save(model_file, tokens_map, fbytes);
   return 0;
 }
