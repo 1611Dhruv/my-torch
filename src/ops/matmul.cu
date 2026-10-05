@@ -21,7 +21,8 @@ template <typename scalar_t, const bool a_transp, const bool b_transp,
           const int TN = 4, const int WN_ITER = 2>
 __global__ void
 matmul_kernel(const scalar_t *__restrict__ A, const scalar_t *__restrict__ B,
-              scalar_t *__restrict__ C, int64_t M, int64_t K, int64_t N) {
+              scalar_t *__restrict__ C, int64_t M, int64_t K, int64_t N,
+              int64_t A_Batch_stride, int64_t B_Batch_stride) {
   // +1 padding for non coalasced things
   __shared__ scalar_t As[2][BK][BM + 1];
   __shared__ scalar_t Bs[2][BK][BN + 1];
@@ -38,8 +39,8 @@ matmul_kernel(const scalar_t *__restrict__ A, const scalar_t *__restrict__ B,
   static_assert(LANE_ROWS * LANE_COLS == 32,
                 "The warp must have only 32 lanes");
 
-  int64_t A_batch_off = blockIdx.z * M * K;
-  int64_t B_batch_off = blockIdx.z * K * N;
+  int64_t A_batch_off = blockIdx.z * A_Batch_stride;
+  int64_t B_batch_off = blockIdx.z * B_Batch_stride;
   int64_t C_batch_off = blockIdx.z * M * N;
 
   int roff = blockIdx.y * BM;
@@ -207,24 +208,28 @@ Tensor matmul(const Tensor &a, const Tensor &b, Tensor &out, int64_t B,
 
   // Check for contiguousness
   auto [at, bt] = verify_contiguity(ac, bc);
+  int64_t A_Batch_stride =
+      (a.shape().size() < 3) ? M * K : a.strides()[a.shape().size() - 3];
+  int64_t B_Batch_stride =
+      (b.shape().size() < 3) ? K * N : b.strides()[b.shape().size() - 3];
 
   DISPATCH_OP(ac.dtype(), [&] {
     if (at && bt) {
-      matmul_kernel<scalar_t, true, true>
-          <<<grid, block>>>(ac.data_ptr<scalar_t>(), bc.data_ptr<scalar_t>(),
-                            out.data_ptr<scalar_t>(), M, K, N);
+      matmul_kernel<scalar_t, true, true><<<grid, block>>>(
+          ac.data_ptr<scalar_t>(), bc.data_ptr<scalar_t>(),
+          out.data_ptr<scalar_t>(), M, K, N, A_Batch_stride, B_Batch_stride);
     } else if (at && !bt) {
-      matmul_kernel<scalar_t, true, false>
-          <<<grid, block>>>(ac.data_ptr<scalar_t>(), bc.data_ptr<scalar_t>(),
-                            out.data_ptr<scalar_t>(), M, K, N);
+      matmul_kernel<scalar_t, true, false><<<grid, block>>>(
+          ac.data_ptr<scalar_t>(), bc.data_ptr<scalar_t>(),
+          out.data_ptr<scalar_t>(), M, K, N, A_Batch_stride, B_Batch_stride);
     } else if (!at && bt) {
-      matmul_kernel<scalar_t, false, true>
-          <<<grid, block>>>(ac.data_ptr<scalar_t>(), bc.data_ptr<scalar_t>(),
-                            out.data_ptr<scalar_t>(), M, K, N);
+      matmul_kernel<scalar_t, false, true><<<grid, block>>>(
+          ac.data_ptr<scalar_t>(), bc.data_ptr<scalar_t>(),
+          out.data_ptr<scalar_t>(), M, K, N, A_Batch_stride, B_Batch_stride);
     } else {
-      matmul_kernel<scalar_t, false, false>
-          <<<grid, block>>>(ac.data_ptr<scalar_t>(), bc.data_ptr<scalar_t>(),
-                            out.data_ptr<scalar_t>(), M, K, N);
+      matmul_kernel<scalar_t, false, false><<<grid, block>>>(
+          ac.data_ptr<scalar_t>(), bc.data_ptr<scalar_t>(),
+          out.data_ptr<scalar_t>(), M, K, N, A_Batch_stride, B_Batch_stride);
     }
   });
 
