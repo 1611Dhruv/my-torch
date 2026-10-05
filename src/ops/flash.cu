@@ -80,7 +80,13 @@ __global__ void flash(const scalar_t *Q, const scalar_t *K, const scalar_t *V,
         }
         // Finalize q.T@k / sqrt(d)
         P[j] /= sqrtf(D_HEAD); // Update maxes
-        mx_tile = (mx_tile < P[j]) ? P[j] : mx_tile;
+        bool keep = true;
+        if constexpr (CAUSAL) {
+          int q_i = q_off + RPW * wid + i;
+          int k_j = kv_off + CPL * lid + j;
+          keep = (k_j < N) && (k_j <= q_i);
+        }
+        mx_tile = (keep && mx_tile < P[j]) ? P[j] : mx_tile;
       }
 
       // Now that max is well defined
