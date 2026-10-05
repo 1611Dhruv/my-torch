@@ -1,6 +1,8 @@
 #include "mytorch/autograd.h"
 #include "mytorch/storage.h"
 #include <cmath>
+#include <cstring>
+#include <fstream>
 #include <mytorch/nn/module.h>
 #include <string>
 
@@ -73,6 +75,144 @@ bool Module::unregister_param(const std::string &name) {
     }
   }
   return found;
+}
+
+bool Module::load(const std::string &model_file) {
+  std::ifstream mfile(model_file);
+  if (!mfile) {
+    std::cerr << "cant load: Error opening " << model_file << std::endl;
+    return false;
+  }
+
+  char magic[sizeof(Module::MODEL_MAGIC)];
+
+  if (!mfile.read(magic, sizeof(magic)) ||
+      std::memcmp(magic, Module::MODEL_MAGIC, sizeof(magic)) != 0) {
+    std::cerr << "cant load: Invalid magic in " << model_file << std::endl;
+    return false;
+  }
+
+  constexpr auto chr = [](void *p) { return reinterpret_cast<char *>(p); };
+
+  // Write the model magic
+  auto np = named_params();
+
+  uint64_t num_params;
+  if (!mfile.read(chr(&num_params), sizeof(num_params)) ||
+      num_params != np.size()) {
+    std::cerr << "cant load: num_params dont match between model and "
+              << model_file << " num_params: " << num_params
+              << " np.size(): " << np.size() << std::endl;
+    return false;
+  }
+
+  for (const auto &[name, vrptr] : np) {
+    uint64_t name_sz;
+    if (!mfile.read(chr(&name_sz), sizeof(name_sz)) || name_sz != name.size()) {
+      std::cerr << "cant load: name_sz dont match between model and "
+                << model_file << " name_sz: " << name_sz
+                << " name.size(): " << name.size() << std::endl;
+      return false;
+    }
+
+    std::string name_buff(name_sz, 0);
+    if (!mfile.read(chr(name_buff.data()), name_sz) || name_buff != name) {
+      std::cerr << "cant load: name dont match between model and " << model_file
+                << " name_buff: " << name_buff << " name: " << name
+                << std::endl;
+      return false;
+    }
+
+    auto data = vrptr->data();
+
+    uint8_t dtype;
+    if (!mfile.read(chr(&dtype), sizeof(dtype)) ||
+        dtype != static_cast<uint8_t>(data.dtype())) {
+      std::cerr << "cant load: dtype dont match between model and "
+                << model_file << " dtype: " << dtype
+                << " data.dtype(): " << static_cast<uint8_t>(data.dtype())
+                << std::endl;
+      return false;
+    }
+
+    const auto &shape = data.shape();
+    uint64_t shape_sz;
+
+    uint64_t sz = 1;
+    if (!mfile.read(chr(&shape_sz), sizeof(shape_sz)) ||
+        shape_sz != shape.size()) {
+      std::cerr << "cant load: shape_sz dont match between model and "
+                << model_file << " shape_sz: " << shape_sz
+                << " shape.size(): " << shape.size() << std::endl;
+      return false;
+    }
+
+    for (uint64_t shp : shape) {
+      uint64_t shp_buff;
+      if (!mfile.read(chr(&shp_buff), sizeof(shp)) || shp != shp_buff) {
+        std::cerr << "cant load: shp dont match between model and "
+                  << model_file << " shp_buff: " << shp_buff << " shp: " << shp
+                  << std::endl;
+        return false;
+      }
+      sz *= shp;
+    }
+    Tensor data_cpu = data.to(data.dtype(), Device::CPU);
+    if (!mfile.read(chr(data_cpu.raw()),
+                    sz * torch::itemsize(data_cpu.dtype()))) {
+      std::cerr << "cant load: something went wrong when reading item data"
+                << model_file << std::endl;
+      return false;
+    }
+    vrptr->data() = data_cpu.to(data.dtype(), data.device());
+  }
+
+  return true;
+}
+
+bool Module::save(const std::string &model_file) {
+  std::ofstream mfile(model_file.c_str(), std::ios::out | std::ios::trunc);
+  if (!mfile) {
+    std::cerr << "Error saving to " << model_file << std::endl;
+    return false;
+  }
+
+  constexpr auto chr = [](const void *p) {
+    return reinterpret_cast<const char *>(p);
+  };
+
+  // Write the model magic
+  mfile.write(Module::MODEL_MAGIC, sizeof(Module::MODEL_MAGIC));
+  auto np = named_params();
+
+  uint64_t num_params = np.size();
+  mfile.write(chr(&num_params), sizeof(num_params));
+  for (const auto &[name, vrptr] : np) {
+    uint64_t name_sz = name.size();
+    mfile.write(chr(&name_sz), sizeof(name_sz));
+    mfile.write(chr(name.data()), name_sz);
+
+    auto data =
+        vrptr->data().contiguous().to(vrptr->data().dtype(), Device::CPU);
+    // Write the dtype
+    uint8_t dtype = static_cast<uint8_t>(data.dtype());
+    mfile.write(chr(&dtype), sizeof(dtype));
+
+    // Write the size
+    const auto &shape = data.shape();
+    uint64_t shape_sz = shape.size();
+
+    uint64_t sz = 1;
+    mfile.write(chr(&shape_sz), sizeof(shape_sz));
+    for (uint64_t shp : shape) {
+      mfile.write(chr(&shp), sizeof(shp));
+      sz *= shp;
+    }
+
+    mfile.write(chr(data.raw()), sz * torch::itemsize(data.dtype()));
+  }
+
+  return true;
 }
 
 // Linear layer

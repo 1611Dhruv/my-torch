@@ -50,6 +50,7 @@ public:
   inline DType dtype() const { return _dtype; };
   inline Device device() const { return _storage.device(); };
   bool is_contiguous() const;
+  std::byte *raw() { return _storage.get() + _offset * itemsize(_dtype); };
 
   // static factories
   static Tensor zeros(std::vector<int64_t> shape, DType dtype = DType::Float32,

@@ -28,8 +28,11 @@ public:
   std::vector<ag::VarPtr> params() const;
   void zero_grad();
   void to(DType dtype, Device dev);
+  bool load(const std::string &model_file);
+  bool save(const std::string &model_file);
 
 protected:
+  static constexpr char MODEL_MAGIC[] = "\x06\x07MY_MODEL\x08\x09";
   // Each nn module should be able to either register a param or a module
   void register_module(const std::string &name, Module *module);
   ag::VarPtr register_param(const std::string &name, ag::VarPtr param);

@@ -20,6 +20,7 @@
 #include "mytorch/optim.h"
 #include "mytorch/tensor.h"
 #include <cmath>
+#include <fstream>
 #include <cstdio>
 #include <gtest/gtest.h>
 #include <memory>
@@ -901,4 +902,144 @@ TEST(AdamTest, BeatsSgdOnTheEmbeddingGradientScaleProblem) {
     opt.step();
   }
   EXPECT_LT(second, first);
+}
+
+// ===========================================================================
+// Module::save / Module::load -- round trip by name, into an existing model
+// ===========================================================================
+
+static std::string tmp_model_path(const char *tag) {
+  return std::string(::testing::TempDir()) + "mytorch_" + tag + ".bin";
+}
+
+TEST(SaveLoadTest, RoundTripReproducesLogitsBitForBit) {
+  // Save model A, build model B from a different seed (so every parameter
+  // differs), load A's file into B, and require identical logits on the same
+  // batch. EXPECT_FLOAT_EQ, not NEAR: the bytes are copied, so the outputs
+  // must agree to the bit.
+  const auto path = tmp_model_path("roundtrip");
+  auto x = ids(2, 4, {1, 2, 3, 4, 10, 0, 0, 5});
+
+  torch::manual_seed(0);
+  nn::Transformer a(XV, XD, XF, XL, XH, XT);
+  a.set_pe("learned");
+  ASSERT_TRUE(a.save(path));
+  auto want = to_vec(a(x)->data());
+
+  torch::manual_seed(1);
+  nn::Transformer b(XV, XD, XF, XL, XH, XT);
+  b.set_pe("learned");
+  auto before = to_vec(b(x)->data());
+  bool any_diff = false;
+  for (size_t i = 0; i < before.size(); ++i)
+    any_diff |= (before[i] != want[i]);
+  ASSERT_TRUE(any_diff) << "fixture bug: B already equals A before load";
+
+  ASSERT_TRUE(b.load(path));
+  auto got = to_vec(b(x)->data());
+  ASSERT_EQ(got.size(), want.size());
+  for (size_t i = 0; i < got.size(); ++i)
+    EXPECT_FLOAT_EQ(got[i], want[i]) << "logit " << i;
+}
+
+TEST(SaveLoadTest, LoadedParametersMatchByName) {
+  // Beyond the logits: every named parameter's bytes must match, which also
+  // pins that names were written as characters, not as string objects.
+  const auto path = tmp_model_path("bynames");
+  torch::manual_seed(0);
+  nn::Transformer a(XV, XD, XF, XL, XH, XT);
+  ASSERT_TRUE(a.save(path));
+
+  torch::manual_seed(1);
+  nn::Transformer b(XV, XD, XF, XL, XH, XT);
+  ASSERT_TRUE(b.load(path));
+
+  auto pa = a.named_params(), pb = b.named_params();
+  ASSERT_EQ(pa.size(), pb.size());
+  for (size_t i = 0; i < pa.size(); ++i) {
+    EXPECT_EQ(pa[i].first, pb[i].first);
+    auto va = to_vec(pa[i].second->data()), vb = to_vec(pb[i].second->data());
+    ASSERT_EQ(va.size(), vb.size()) << pa[i].first;
+    for (size_t k = 0; k < va.size(); ++k)
+      EXPECT_FLOAT_EQ(va[k], vb[k]) << pa[i].first << "[" << k << "]";
+  }
+}
+
+TEST(SaveLoadTest, SavedFileHasExpectedSizeNoMoreNoLess) {
+  // header: magic + u64 count. per param: u64 name_len + name + u8 dtype
+  // + u64 ndim + u64*ndim + raw bytes. Catches writing a string object
+  // (wrong name bytes) or forgetting a field, independent of load().
+  const auto path = tmp_model_path("size");
+  torch::manual_seed(0);
+  nn::Linear lin(3, 5);
+  ASSERT_TRUE(lin.save(path));
+
+  // MODEL_MAGIC is "\x06\x07MY_MODEL\x08\x09" written with sizeof, i.e. 13
+  // bytes including the trailing NUL.
+  const size_t magic_len = 13;
+  size_t want = magic_len + 8;
+  for (auto &[name, p] : lin.named_params())
+    want += 8 + name.size() + 1 + 8 + 8 * p->data().shape().size() +
+            p->data().numel() * torch::itemsize(p->data().dtype());
+
+  std::ifstream f(path, std::ios::binary | std::ios::ate);
+  ASSERT_TRUE(f.good());
+  EXPECT_EQ(static_cast<size_t>(f.tellg()), want);
+}
+
+TEST(SaveLoadTest, ShapeMismatchIsRejected) {
+  const auto path = tmp_model_path("shape");
+  torch::manual_seed(0);
+  nn::Linear a(3, 5);
+  ASSERT_TRUE(a.save(path));
+  nn::Linear b(3, 6); // same names, different shape
+  EXPECT_FALSE(b.load(path));
+}
+
+TEST(SaveLoadTest, ParameterCountMismatchIsRejected) {
+  const auto path = tmp_model_path("count");
+  torch::manual_seed(0);
+  nn::Transformer a(XV, XD, XF, XL, XH, XT);
+  a.set_pe("learned"); // 1 more parameter than b
+  ASSERT_TRUE(a.save(path));
+  nn::Transformer b(XV, XD, XF, XL, XH, XT);
+  EXPECT_FALSE(b.load(path));
+}
+
+TEST(SaveLoadTest, GarbageFileIsRejected) {
+  const auto path = tmp_model_path("garbage");
+  {
+    std::ofstream f(path, std::ios::binary);
+    f << "definitely not a model";
+  }
+  nn::Linear l(3, 5);
+  EXPECT_FALSE(l.load(path));
+  EXPECT_FALSE(l.load(path + ".does_not_exist"));
+}
+
+TEST(SaveLoadTest, OptimizerStillTracksParametersAfterLoad) {
+  // Adam keys state by VarPtr. load() must not break that link: after a
+  // load, one Adam step must still move the parameters it was built on.
+  const auto path = tmp_model_path("optim");
+  torch::manual_seed(0);
+  nn::Linear a(3, 5);
+  ASSERT_TRUE(a.save(path));
+
+  torch::manual_seed(1);
+  nn::Linear b(3, 5);
+  torch::Adam opt(b.params(), 0.1);
+  ASSERT_TRUE(b.load(path));
+
+  auto before = to_vec(param_named(b, "weight")->data());
+  auto x = input(2, 3, {1, 2, 3, 4, 5, 6});
+  auto y = input(2, 5, {0, 0, 0, 0, 0, 1, 1, 1, 1, 1});
+  opt.zero_grad();
+  MSE loss(b(x), y);
+  loss.backward();
+  opt.step();
+  auto after = to_vec(param_named(b, "weight")->data());
+  bool moved = false;
+  for (size_t i = 0; i < before.size(); ++i)
+    moved |= (before[i] != after[i]);
+  EXPECT_TRUE(moved) << "optimizer lost track of the parameter after load";
 }
