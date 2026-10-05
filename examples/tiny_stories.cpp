@@ -45,8 +45,8 @@ public:
 private:
   const T *_tokens_map;
   size_t _num_tokens;
-  size_t _batch_sz;
-  size_t _seq_len;
+  int64_t _batch_sz;
+  int64_t _seq_len;
   std::mt19937 _rg;
   std::uniform_int_distribution<size_t> _dist;
   torch::DType _dtype;
@@ -65,9 +65,11 @@ void train_and_save(const std::string &model_file, const char *data,
   constexpr int64_t NBLOCKS = 10;
 
   Load<uint8_t> loader(reinterpret_cast<const uint8_t *>(data), num_tokens, B,
-                       T, torch::DType::Int32, torch::Device::CPU);
+                       T, torch::DType::Int32, torch::Device::CUDA);
 
-  torch::nn::Transformer model(VOCAB, DMODEL, DFF, NBLOCKS, 4, T);
+  torch::nn::Transformer model(VOCAB, DMODEL, DFF, NBLOCKS, 4, T,
+                               torch::DType::Float32, torch::Device::CUDA);
+  model.set_pe("learned");
   torch::Adam opt(model.params(), 0.001);
 
   constexpr int64_t EPOCH = 10;
