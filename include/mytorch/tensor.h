@@ -59,6 +59,9 @@ public:
   static Tensor ones_like(const Tensor &other);
   static Tensor ones(std::vector<int64_t> shape, DType dtype = DType::Float32,
                      Device device = Device::CPU);
+  static Tensor one_hot(const Tensor &idx, int64_t vocab_sz,
+                        DType dtype = DType::Float32,
+                        Device device = Device::CPU);
   static Tensor rand(std::vector<int64_t> shape, Device device = Device::CPU);
   static Tensor randn(std::vector<int64_t> shape, Device device = Device::CPU,
                       double mean = 0, double std = 1);

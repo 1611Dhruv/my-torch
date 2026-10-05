@@ -54,28 +54,31 @@ private:
 
 void train_and_save(const std::string &model_file, const char *data,
                     int64_t num_tokens) {
-  constexpr int64_t B = 128;
-  constexpr int64_t T = 64;
+  constexpr int64_t B = 32;
+  constexpr int64_t T = 1024;
 
   constexpr int64_t VOCAB = 256;
-  constexpr int64_t DMODEL = 128;
-  constexpr int64_t NHEADS = 4;
+  constexpr int64_t DMODEL = 384;
+  constexpr int64_t NHEADS = 6;
   constexpr int64_t DFF = (8 * DMODEL) / 3;
-  constexpr int64_t NBLOCKS = 10;
+  constexpr int64_t NBLOCKS = 6;
 
   Load<uint8_t> loader(reinterpret_cast<const uint8_t *>(data), num_tokens, B,
                        T, torch::DType::Int32, torch::Device::CUDA);
 
-  torch::nn::Transformer model(VOCAB, DMODEL, DFF, NBLOCKS, 4, T,
+  torch::nn::Transformer model(VOCAB, DMODEL, DFF, NBLOCKS, NHEADS, T,
                                torch::DType::Float32, torch::Device::CUDA);
   model.set_pe("learned");
   torch::Adam opt(model.params(), 0.001);
 
-  constexpr int64_t EPOCH = 10;
+  constexpr int64_t EPOCH = 2000;
   for (int64_t epoch = 0; epoch < EPOCH; epoch++) {
     auto [x_data, y_data] = loader.batch();
     auto X = torch::autograd::Variable::leaf(x_data, false);
-    auto Y = torch::autograd::Variable::leaf(y_data, false);
+    auto Y = torch::autograd::Variable::leaf(
+        torch::Tensor::one_hot(y_data, VOCAB, torch::DType::Float32,
+                               torch::Device::CUDA),
+        false);
 
     opt.zero_grad();
     auto Y_hat = model(X);

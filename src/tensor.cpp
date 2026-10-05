@@ -378,6 +378,24 @@ Tensor Tensor::ones(std::vector<int64_t> shape, DType dtype, Device device) {
   return t;
 }
 
+Tensor Tensor::one_hot(const Tensor &idx, int64_t vocab_sz, DType dtype,
+                       Device device) {
+  auto shp = idx.shape();
+  shp.push_back(vocab_sz);
+  Tensor t = Tensor::zeros(shp, torch::DType::Float32, torch::Device::CPU);
+  int64_t n = t.numel() / vocab_sz;
+  int64_t nb = t._storage.size();
+
+  Tensor idx_cpu = idx.to(DType::Int32, Device::CPU);
+
+  int *idx_b = idx_cpu.data_ptr<int>();
+  for (int64_t i = 0; i < n; i++) {
+    t.data_ptr<float>()[i * vocab_sz + idx_b[i]] = 1.0;
+  }
+
+  return t.to(dtype, device);
+}
+
 static std::mt19937 &rand_generator() {
   static std::mt19937 gen(std::random_device{}());
   return gen;
