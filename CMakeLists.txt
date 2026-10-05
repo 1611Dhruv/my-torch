@@ -47,6 +47,9 @@ target_link_libraries(mytorch PUBLIC CUDA::cudart)
 add_executable(hello examples/hello_world.cpp)
 target_link_libraries(hello PRIVATE mytorch)
 
+add_executable(tiny_stories examples/tiny_stories.cpp)
+target_link_libraries(tiny_stories PRIVATE mytorch)
+
 # Tests (build with -DMYTORCH_BUILD_TESTS=ON, on by default)
 option(MYTORCH_BUILD_TESTS "Build the test suite" ON)
 if(MYTORCH_BUILD_TESTS)

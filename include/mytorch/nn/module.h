@@ -167,6 +167,7 @@ private:
 
   Embedding _embed;
   std::vector<std::shared_ptr<TransformerBlock>> _blocks;
+  RMSNorm _final_rms;
   Linear _unembed;
 };
 

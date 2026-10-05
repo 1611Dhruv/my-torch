@@ -265,11 +265,12 @@ TEST(ShiftTaskTest, EveryParameterIsReachableFromTheTopLevel) {
   nn::Transformer model(SV, SD, SFF, SL, SH, ST);
   model.set_pe("learned");
 
-  // Per block: 4 attention (Wq, Wk, Wv, Wo) + 2 RMSNorm gains + 2 FFN weights.
+  // Per block: 4 attention (Wq, Wk, Wv, Wo) + 2 RMSNorm gains
+  //          + 3 SwiGLU matrices (gate, up, down).
   // Top level: 1 embedding table + 1 learned positional table
-  //          + 2 unembed (weight, bias). Update when a final norm is added.
-  const size_t per_block = 4 + 2 + 2;
-  const size_t top_level = 1 + 1 + 2;
+  //          + 1 final RMSNorm gain + 2 unembed (weight, bias).
+  const size_t per_block = 4 + 2 + 3;
+  const size_t top_level = 1 + 1 + 1 + 2;
   EXPECT_EQ(model.params().size(), SL * per_block + top_level);
 
   std::set<std::string> names;

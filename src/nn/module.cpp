@@ -319,6 +319,7 @@ Transformer::Transformer(int64_t vocab_size, int64_t d_model, int64_t d_ff,
                          int64_t n_blocks, int64_t n_heads, int64_t max_context,
                          DType dtype, Device dev)
     : _embed(vocab_size, d_model, dtype, dev),
+      _final_rms(d_model, dtype, dev),
       _unembed(d_model, vocab_size, dtype, dev),
       _max_context(max_context),
       _d_model(d_model),
@@ -329,6 +330,7 @@ Transformer::Transformer(int64_t vocab_size, int64_t d_model, int64_t d_ff,
         d_model, d_ff, n_heads, max_context, dtype, dev));
     register_module("block " + std::to_string(i), _blocks.back().get());
   }
+  register_module("final_rms", &_final_rms);
   register_module("unembed", &_unembed);
 }
 
@@ -388,6 +390,7 @@ ag::VarPtr Transformer::forward(ag::VarPtr inp) {
   for (auto &m : _blocks) {
     res = m->forward(res);
   }
+  res = _final_rms(res);
   return _unembed(res);
 };
 
