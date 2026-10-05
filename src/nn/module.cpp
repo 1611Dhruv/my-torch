@@ -363,7 +363,10 @@ ag::VarPtr MultiHeadAttention::forward(ag::VarPtr inp) {
   // Flash is usable only on cuda with float32
   if (inp->data().device() == torch::Device::CUDA &&
       inp->data().dtype() == torch::DType::Float32) {
-    return ag::flash_atten(q_h, k_h, v_h, _causal);
+    auto head_out = ag::flash_atten(q_h, k_h, v_h, _causal);
+    auto merge_back = ag::reshape(ag::transpose(head_out, 1, 2), inp_shape);
+    auto res = ag::matmul(merge_back, _Wo);
+    return res;
   } else {
     auto qkt = ag::scale(ag::matmul(q_h, ag::transpose(k_h, -1, -2)),
                          1.0 / std::sqrt(d_head));
