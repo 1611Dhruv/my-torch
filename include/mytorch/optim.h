@@ -37,10 +37,15 @@ private:
 
 class Adam : public Optim {
 public:
-  Adam(std::vector<ag::VarPtr> params, double lr, double b1 = 0.9,
+  Adam(std::vector<ag::VarPtr> params, double lr_min, double lr_max = 1e-2,
+       double max_step = 0, double warm_up = 10, double b1 = 0.9,
        double b2 = 0.999)
       : Optim(params),
-        _lr(lr),
+        _lr_min(lr_min),
+        _lr_max(lr_max),
+        _step(0),
+        _max_step(max_step),
+        _warm_up(warm_up),
         _b1(b1),
         _b2(b2),
         _b1_running(1),
@@ -55,9 +60,17 @@ public:
   }
 
   void step() override;
+  double lr();
+  float all_grad_norm();
+  void clip_grad_norm(double to_clip);
 
 private:
   double _lr;
+  double _lr_min;
+  double _lr_max;
+  double _step;
+  double _max_step;
+  double _warm_up;
   double _b1;
   double _b2;
   double _b1_running;

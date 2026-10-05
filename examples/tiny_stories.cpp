@@ -4,6 +4,7 @@
 #include "mytorch/optim.h"
 #include "mytorch/tensor.h"
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <fcntl.h>
@@ -21,18 +22,27 @@
 // Hyperparameters (shared by training and inference so architectures match)
 // ---------------------------------------------------------------------------
 namespace cfg {
-constexpr int64_t B = 128;
-constexpr int64_t T = 64;
+constexpr int64_t B = 32;
+constexpr int64_t T = 1024;
 constexpr int64_t VOCAB = 256;
-constexpr int64_t DMODEL = 128;
-constexpr int64_t NHEADS = 4;
+constexpr int64_t DMODEL = 384;
+constexpr int64_t NHEADS = 6;
 constexpr int64_t DFF = (8 * DMODEL) / 3;
-constexpr int64_t NBLOCKS = 10;
-constexpr int64_t EPOCHS = 10;
-constexpr float LR = 0.001f;
+constexpr int64_t NBLOCKS = 8;
+constexpr int64_t EPOCHS = 2000;
+
+constexpr float LR_MIN = 1e-4;
+constexpr float LR_MAX = 1e-3;
+constexpr double T_MAX = EPOCHS;
+constexpr double T_WARM = 200;
+constexpr double CLIP = 1.0;
+
+constexpr int64_t PRINT_EVERY = 5;
+constexpr int64_t CHECKPOINT_EVERY = 50;
 
 constexpr int64_t GEN_TOKENS = 200;
 constexpr float TEMPERATURE = 0.8f;
+
 } // namespace cfg
 
 // ---------------------------------------------------------------------------
@@ -139,21 +149,41 @@ void train(torch::nn::Transformer &model, const uint8_t *data,
            size_t num_tokens) {
   Load<uint8_t> loader(data, num_tokens, cfg::B, cfg::T, torch::DType::Int32,
                        torch::Device::CUDA);
-  torch::Adam opt(model.params(), cfg::LR);
+  torch::Adam opt(model.params(), cfg::LR_MIN, cfg::LR_MAX, cfg::T_MAX,
+                  cfg::T_WARM);
 
   for (int64_t epoch = 0; epoch < cfg::EPOCHS; epoch++) {
     auto [x_data, y_data] = loader.batch();
     auto X = torch::autograd::Variable::leaf(x_data, false);
-    auto Y = torch::autograd::Variable::leaf(y_data, false);
+    auto Y = torch::autograd::Variable::leaf(
+        torch::Tensor::one_hot(y_data, cfg::VOCAB)
+            .to(torch::DType::Float32, torch::Device::CUDA),
+        false);
 
     opt.zero_grad();
+    auto start = std::chrono::high_resolution_clock::now();
     auto Y_hat = model(X);
     auto loss = torch::CrossEntropy(Y_hat, Y);
-    std::cout << "epoch " << epoch << ", Avg Loss: " << loss.loss()
-              << std::endl;
+    if (epoch % cfg::PRINT_EVERY == 0) {
+      std::cout << "step: " << epoch << " | loss: " << loss.loss() << " | ";
+    }
 
     loss.backward();
+    if (epoch % cfg::PRINT_EVERY == 0) {
+      std::cout << "grad_norm: " << opt.all_grad_norm();
+    }
+    opt.clip_grad_norm(cfg::CLIP);
     opt.step();
+    auto end = std::chrono::high_resolution_clock::now();
+    if (epoch % cfg::PRINT_EVERY == 0) {
+      std::cout << " | lr: " << opt.lr() << " | time: "
+                << std::chrono::duration_cast<std::chrono::milliseconds>(end -
+                                                                         start)
+                << "\n";
+    }
+    if (epoch % cfg::CHECKPOINT_EVERY == 0) {
+      model.save("data/check_point-" + std::to_string(epoch) + ".mytorch");
+    }
   }
 }
 

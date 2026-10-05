@@ -28,6 +28,7 @@ public:
   Tensor &data() { return _t; }
 
   const std::optional<Tensor> &grad() const { return _grad; }
+  std::optional<Tensor> &grad() { return _grad; }
   bool has_grad() const { return _grad.has_value(); }
   void accumulate_grad(const Tensor &g);
 
