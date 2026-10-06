@@ -29,18 +29,18 @@ constexpr int64_t DMODEL = 384;
 constexpr int64_t NHEADS = 6;
 constexpr int64_t DFF = (8 * DMODEL) / 3;
 constexpr int64_t NBLOCKS = 8;
-constexpr int64_t EPOCHS = 2000;
+constexpr int64_t EPOCHS = 4000;
 
-constexpr float LR_MIN = 1e-4;
-constexpr float LR_MAX = 1e-3;
+constexpr float LR_MIN = 1e-5;
+constexpr float LR_MAX = 5e-4;
 constexpr double T_MAX = EPOCHS;
-constexpr double T_WARM = 200;
+constexpr double T_WARM = 100;
 constexpr double CLIP = 1.0;
 
-constexpr int64_t PRINT_EVERY = 5;
-constexpr int64_t CHECKPOINT_EVERY = 50;
+constexpr int64_t PRINT_EVERY = 50;
+constexpr int64_t CHECKPOINT_EVERY = 200;
 
-constexpr int64_t GEN_TOKENS = 200;
+constexpr int64_t GEN_TOKENS = 1000;
 constexpr float TEMPERATURE = 0.8f;
 
 } // namespace cfg
